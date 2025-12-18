@@ -1,0 +1,44 @@
+[
+    {
+        "id":"VCP",
+        "nome":"Campinas (VCP)",
+        "lat":-23.0,
+        "lon":-47.13,
+        "tipo":"Origem"
+    },
+    {
+        "id":"GRU",
+        "nome":"S\u00e3o Paulo (GRU)",
+        "lat":-23.43,
+        "lon":-46.47,
+        "tipo":"Prox_Origem"
+    },
+    {
+        "id":"CGH",
+        "nome":"S\u00e3o Paulo (CGH)",
+        "lat":-23.62,
+        "lon":-46.65,
+        "tipo":"Prox_Origem"
+    },
+    {
+        "id":"GIG",
+        "nome":"Rio de Janeiro (GIG)",
+        "lat":-22.81,
+        "lon":-43.24,
+        "tipo":"Destino"
+    },
+    {
+        "id":"SDU",
+        "nome":"Rio de Janeiro (SDU)",
+        "lat":-22.91,
+        "lon":-43.16,
+        "tipo":"Prox_Destino"
+    },
+    {
+        "id":"CNF",
+        "nome":"Belo Horizonte (CNF)",
+        "lat":-19.63,
+        "lon":-43.97,
+        "tipo":"Prox_Destino"
+    }
+]

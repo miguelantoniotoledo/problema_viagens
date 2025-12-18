@@ -1,0 +1,12 @@
+[
+    {
+        "cidade_id":"GIG",
+        "nome":"Hotel GIG Econ\u00f4mico",
+        "custo_diaria":200
+    },
+    {
+        "cidade_id":"GIG",
+        "nome":"Hotel GIG Padr\u00e3o",
+        "custo_diaria":350
+    }
+]

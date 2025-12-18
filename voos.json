@@ -1,0 +1,17 @@
+[
+    {
+        "custo_voo_pessoa":2000,
+        "origem_id":"VCP",
+        "destino_id":"GIG"
+    },
+    {
+        "custo_voo_pessoa":100,
+        "origem_id":"GRU",
+        "destino_id":"SDU"
+    },
+    {
+        "custo_voo_pessoa":400,
+        "origem_id":"CGH",
+        "destino_id":"CNF"
+    }
+]
