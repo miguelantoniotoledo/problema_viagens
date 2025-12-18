@@ -15,8 +15,8 @@ def generate_mock_data():
     # 2. Cidades e Coordenadas (Simplificadas)
     cidades = {
         'VCP': {'nome': 'Campinas (VCP)', 'lat': -23.00, 'lon': -47.13, 'tipo': 'Origem'},
-        'GRU': {'nome': 'São Paulo (GRU)', 'lat': -23.43, 'lon': -46.47, 'tipo': 'Prox_Origem'},
-        'CGH': {'nome': 'São Paulo (CGH)', 'lat': -23.62, 'lon': -46.65, 'tipo': 'Prox_Origem'},
+        'GRU': {'nome': 'Sao Paulo (GRU)', 'lat': -23.43, 'lon': -46.47, 'tipo': 'Prox_Origem'},
+        'CGH': {'nome': 'Sao Paulo (CGH)', 'lat': -23.62, 'lon': -46.65, 'tipo': 'Prox_Origem'},
         'GIG': {'nome': 'Rio de Janeiro (GIG)', 'lat': -22.81, 'lon': -43.24, 'tipo': 'Destino'},
         'SDU': {'nome': 'Rio de Janeiro (SDU)', 'lat': -22.91, 'lon': -43.16, 'tipo': 'Prox_Destino'},
         'CNF': {'nome': 'Belo Horizonte (CNF)', 'lat': -19.63, 'lon': -43.97, 'tipo': 'Prox_Destino'},
