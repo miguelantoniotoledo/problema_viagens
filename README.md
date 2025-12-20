@@ -179,3 +179,14 @@ O modelo de otimização de custos de viagem, baseado na formulação de Program
 [7] /home/ubuntu/voos.json (Dados Mockup de Voos)
 [8] /home/ubuntu/hoteis.json (Dados Mockup de Hotéis)
 [9] /home/ubuntu/aluguel_carros.json (Dados Mockup de Aluguel de Carros)
+## Como rodar a interface Streamlit (mock de scraping)
+
+1. Instalar dependências (idealmente em um venv):
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Executar a UI:
+   ```bash
+   streamlit run src/app.py
+   ```
+3. A UI usa os mocks locais (`voos.json`, `hoteis.json`, `aluguel_carros.json`) para gerar o JSON consumido pelo módulo de otimização.

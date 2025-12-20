@@ -1,0 +1,12 @@
+# Envs
+.env
+.env.*
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Streamlit local config/state
+.streamlit/
