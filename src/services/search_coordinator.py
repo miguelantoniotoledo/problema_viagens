@@ -1,4 +1,5 @@
 from typing import Dict, Any, List
+import itertools
 from datetime import datetime, timedelta
 
 from src import config
@@ -32,65 +33,88 @@ def _compute_stop_windows(stops: List[Stop], trip_start: datetime, trip_end: dat
 
 
 def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: datetime, start_loc: str, end_loc: str):
-    """Gera estadas sequenciais e pernas alinhadas às datas (fixo depois flex)."""
-    # Separar fixos e flexíveis
+    """Gera todas as combinações (permutando flex) com estadas/legs; sem gap final."""
     fixed = [s for s in stops if s.constraint_type == "fixed_window"]
     flex = [s for s in stops if s.constraint_type != "fixed_window"]
     fixed_sorted = sorted(fixed, key=lambda s: _parse_date(s.window_start) or trip_start)
 
-    stays: List[Dict[str, Any]] = []
-    current_date = trip_start
+    warnings: List[str] = []
+    scenarios: List[Dict[str, Any]] = []
 
-    # Processa stops fixos na ordem
-    for stop in fixed_sorted:
-        start = _parse_date(stop.window_start)
-        end = _parse_date(stop.window_end)
-        if start > current_date:
-            gap = (start - current_date).days
-            if gap > 0 and gap <= config.GAP_FILL_DAYS:
-                stays.append(
-                    {
-                        "location": stop.location.strip().upper(),
-                        "checkin": current_date.isoformat(),
-                        "checkout": start.isoformat(),
-                        "nights": gap,
-                        "type": "gap_fill",
-                    }
-                )
-        stays.append(
+    flex_orders = list(itertools.permutations(flex)) if len(flex) <= 6 else [tuple(flex)]
+    if len(flex) > 6:
+        warnings.append("Stops flexíveis > 6, mantendo ordem de entrada.")
+
+    for order in flex_orders:
+        stays: List[Dict[str, Any]] = []
+        current_date = trip_start
+        feasible = True
+
+        # Fixos na ordem
+        for stop in fixed_sorted:
+            start = _parse_date(stop.window_start)
+            end = _parse_date(stop.window_end)
+            if start > trip_end or end > trip_end:
+                feasible = False
+                break
+            if start > current_date:
+                gap = (start - current_date).days
+                if gap > 0 and gap <= config.GAP_FILL_DAYS:
+                    stays.append(
+                        {
+                            "location": stop.location.strip().upper(),
+                            "checkin": current_date.isoformat(),
+                            "checkout": start.isoformat(),
+                            "nights": gap,
+                            "type": "gap_fill",
+                        }
+                    )
+            stays.append(
+                {
+                    "location": stop.location.strip().upper(),
+                    "checkin": start.isoformat(),
+                    "checkout": end.isoformat(),
+                    "nights": max(1, (end - start).days),
+                    "type": "main",
+                }
+            )
+            current_date = end
+        if not feasible:
+            continue
+
+        # Flex na ordem candidata
+        for stop in order:
+            min_days = stop.min_days or 1
+            start = current_date
+            end = start + timedelta(days=min_days)
+            stays.append(
+                {
+                    "location": stop.location.strip().upper(),
+                    "checkin": start.isoformat(),
+                    "checkout": end.isoformat(),
+                    "nights": min_days,
+                    "type": "main",
+                }
+            )
+            current_date = end
+
+        overrun_days = (current_date - trip_end).days if current_date > trip_end else 0
+        scenarios.append(
             {
-                "location": stop.location.strip().upper(),
-                "checkin": start.isoformat(),
-                "checkout": end.isoformat(),
-                "nights": max(1, (end - start).days),
-                "type": "main",
+                "stays": sorted(stays, key=lambda s: s["checkin"]),
+                "order": [s.location for s in fixed_sorted] + [s.location for s in order],
+                "is_feasible": current_date <= trip_end,
+                "overrun_days": max(0, overrun_days),
             }
         )
-        current_date = end
 
-    # Flexíveis entram sequencialmente após o último fixo
-    for stop in flex:
-        min_days = stop.min_days or 1
-        start = current_date
-        end = start + timedelta(days=min_days)
-        stays.append(
-            {
-                "location": stop.location.strip().upper(),
-                "checkin": start.isoformat(),
-                "checkout": end.isoformat(),
-                "nights": min_days,
-                "type": "main",
-            }
-        )
-        current_date = end
-
-    # Ordena stays por checkin
-    stays = sorted(stays, key=lambda s: s["checkin"])
+    # Escolhe a primeira combinação (feasible se houver) para rodar scrapers
+    chosen = next((s for s in scenarios if s["is_feasible"]), scenarios[0] if scenarios else {"stays": [], "order": [], "is_feasible": True, "overrun_days": 0})
+    stays = chosen["stays"]
 
     # Monta pernas baseadas em stays e start/end
     legs: List[Dict[str, Any]] = []
     if stays:
-        # inicial
         legs.append(
             {
                 "origin": (start_loc or stays[0]["location"]).strip().upper(),
@@ -99,7 +123,6 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
                 "arrival": stays[0]["checkin"],
             }
         )
-        # intermediárias
         for idx in range(len(stays) - 1):
             legs.append(
                 {
@@ -109,7 +132,6 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
                     "arrival": stays[idx + 1]["checkin"],
                 }
             )
-        # final
         legs.append(
             {
                 "origin": stays[-1]["location"],
@@ -119,7 +141,6 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
             }
         )
 
-    # Enriquecer pernas com distância/tempo
     enhanced_legs = []
     for leg in legs:
         leg_copy = dict(leg)
@@ -136,7 +157,7 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
                 pass
         enhanced_legs.append(leg_copy)
 
-    return stays, enhanced_legs
+    return stays, enhanced_legs, warnings, scenarios
 
 
 def _build_stays(windows: List[Dict[str, Any]], trip_start: datetime, trip_end: datetime) -> List[Dict[str, Any]]:
@@ -204,7 +225,7 @@ def run_search(req: SearchRequest) -> SearchResponse:
     """Orquestra cálculo de pernas/estadas e chama scrapers mockados."""
     trip_start = _parse_date(req.trip_start_date) if req.trip_start_date else datetime.today()
     trip_end = _parse_date(req.trip_end_date) if req.trip_end_date else trip_start
-    stays, legs = _build_stays_and_legs(req.stops, trip_start, trip_end, req.trip_start_location or "", req.trip_end_location or "")
+    stays, legs, warnings, scenarios = _build_stays_and_legs(req.stops, trip_start, trip_end, req.trip_start_location or "", req.trip_end_location or "")
     rentals = _build_rentals(legs)
 
     flights = cap_results(scrape_flights(req, legs), req.max_items)
@@ -246,6 +267,16 @@ def run_search(req: SearchRequest) -> SearchResponse:
         ],
         "legs": legs,
         "stays": stays,
+        "warnings": warnings,
+        "scenarios": [
+            {
+                "order": sc["order"],
+                "is_feasible": sc["is_feasible"],
+                "overrun_days": sc["overrun_days"],
+                "stays": sc["stays"],
+            }
+            for sc in scenarios
+        ],
     }
 
     return SearchResponse(

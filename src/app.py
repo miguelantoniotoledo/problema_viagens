@@ -329,6 +329,22 @@ def render_search_and_results():
         payload = build_request_payload()
         data = cached_search(payload)
         st.success("Busca finalizada (mock).")
+        # Mostrar ordens/combinações
+        scenarios = data.get("meta", {}).get("scenarios", [])
+        if scenarios:
+            st.subheader("Combinações de localidades (ordem)")
+            trip_start = st.session_state.trip_start_location or "?"
+            trip_end = st.session_state.trip_end_location or trip_start
+            st.table(
+                [
+                    {
+                        "ordem": " -> ".join([trip_start] + sc["order"] + [trip_end]),
+                        "viável": sc["is_feasible"],
+                        "overrun_dias": sc["overrun_days"],
+                    }
+                    for sc in scenarios
+                ]
+            )
         st.json(data)
         st.download_button(
             label="Baixar JSON",
