@@ -13,5 +13,25 @@
         "custo_voo_pessoa":400,
         "origem_id":"CGH",
         "destino_id":"CNF"
+    },
+    {
+        "custo_voo_pessoa":500,
+        "origem_id":"GYN",
+        "destino_id":"MIA"
+    },
+    {
+        "custo_voo_pessoa":450,
+        "origem_id":"MIA",
+        "destino_id":"ATL"
+    },
+    {
+        "custo_voo_pessoa":200,
+        "origem_id":"ATL",
+        "destino_id":"ORL"
+    },
+    {
+        "custo_voo_pessoa":550,
+        "origem_id":"ORL",
+        "destino_id":"GYN"
     }
 ]

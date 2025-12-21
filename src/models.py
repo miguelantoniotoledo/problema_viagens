@@ -67,7 +67,7 @@ class SearchRequest:
     travelers: List[TravelerProfile]
     currency: str
     cache_ttl_seconds: int = 300
-    max_items: int = 40
+    max_items: int = 20
     trip_start_location: Optional[str] = None
     trip_start_date: Optional[str] = None
     trip_end_location: Optional[str] = None

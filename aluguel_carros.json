@@ -28,5 +28,20 @@
         "cidade_id":"CNF",
         "nome":"Locadora F CNF",
         "custo_diaria":150
+    },
+    {
+        "cidade_id":"MIA",
+        "nome":"Locadora MIA 1",
+        "custo_diaria":90
+    },
+    {
+        "cidade_id":"ATL",
+        "nome":"Locadora ATL 1",
+        "custo_diaria":85
+    },
+    {
+        "cidade_id":"ORL",
+        "nome":"Locadora ORL 1",
+        "custo_diaria":80
     }
 ]

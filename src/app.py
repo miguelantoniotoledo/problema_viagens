@@ -11,15 +11,34 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
+from src import config
 from src.models import TravelerProfile, Stop, SearchRequest  # noqa: E402
 from src.services.search_coordinator import run_search  # noqa: E402
-
+from src.utils.autocomplete import search_locations  # noqa: E402
 
 st.set_page_config(page_title="Planejador de Viagens - Kayak", layout="wide")
-st.title("Planejador de Viagens (Mock Kayak)")
+st.title("Planejador de Viagens (BR-EUA)")
+
+
+def render_location_picker(container, label: str, key: str, current: str) -> str:
+    """Selectbox único com busca interna (dataset local BR/EUA)."""
+    options = search_locations("", limit=5000)
+    if not options:
+        return current.strip().upper()
+    display = [f"{o['code']} - {o['city']}/{o['state']} ({o['country']})" for o in options]
+    default_index = 0
+    if current:
+        for i, opt in enumerate(options):
+            if opt["code"] == current:
+                default_index = i
+                break
+    choice = container.selectbox(label, display, index=default_index, key=f"{key}_select")
+    idx = display.index(choice)
+    return options[idx]["code"]
 
 
 def init_state():
+    """Inicializa chaves do estado da sessão com valores padrão."""
     st.session_state.setdefault("travelers", [])
     st.session_state.setdefault("stops", [])
     st.session_state.setdefault("currency", "USD")
@@ -35,28 +54,15 @@ init_state()
 def render_trip_constraints():
     st.subheader("Parâmetros da viagem (início/fim)")
     col1, col2 = st.columns(2)
-    st.session_state.trip_start_location = col1.text_input("Local de início da viagem", value=st.session_state.trip_start_location)
+    st.session_state.trip_start_location = render_location_picker(col1, "Local de início da viagem", "trip_start_loc", st.session_state.trip_start_location)
     col2.date_input("Data de início", key="trip_start_date")
     col3, col4 = st.columns(2)
-    st.session_state.trip_end_location = col3.text_input("Local de término da viagem", value=st.session_state.trip_end_location)
-    col4.date_input("Data de término", key="trip_end_date")
+    st.session_state.trip_end_location = render_location_picker(col3, "Local de término da viagem", "trip_end_loc", st.session_state.trip_end_location)
+    col4.date_input("Data máxima para término da viagem", key="trip_end_date")
 
 
 def render_travelers():
-    st.subheader("Viajantes (pax global)")
-    if st.session_state.travelers:
-        rows = [
-            {
-                "nome": t.name,
-                "idade": t.age,
-                "categoria": t.category,
-                "par": next((p.name for p in st.session_state.travelers if p.id == t.partner_id), "-"),
-                "leito": t.bed_pref or "-",
-            }
-            for t in st.session_state.travelers
-        ]
-        st.table(rows)
-
+    st.subheader("Viajantes")
     with st.expander("Adicionar viajante"):
         with st.form("trav_add_form", clear_on_submit=True):
             name = st.text_input("Nome", key="trav_add_name")
@@ -75,6 +81,19 @@ def render_travelers():
                 )
                 st.success("Viajante adicionado.")
                 st.rerun()
+
+    if st.session_state.travelers:
+        rows = [
+            {
+                "nome": t.name,
+                "idade": t.age,
+                "categoria": t.category,
+                "par": next((p.name for p in st.session_state.travelers if p.id == t.partner_id), "-"),
+                "leito": t.bed_pref or "-",
+            }
+            for t in st.session_state.travelers
+        ]
+        st.table(rows)
 
     if st.session_state.travelers:
         st.write("Editar/Remover viajante")
@@ -123,7 +142,52 @@ def render_travelers():
 
 def render_stops():
     st.subheader("Localidades (janela fixa ou dias mínimos)")
+    # Cadastro primeiro
+    constraint_type = st.radio("Tipo de restrição", ["Janela fixa", "Dias mínimos"], horizontal=True, key="stop_add_constraint")
+    with st.form("stop_add_form", clear_on_submit=True):
+        location = render_location_picker(st, "Localidade", "stop_add_location", "")
+        if constraint_type == "Janela fixa":
+            d1 = st.date_input("Início da janela", key="stop_add_start", value=date.today())
+            d2 = st.date_input("Fim da janela", key="stop_add_end", value=date.today())
+            min_days = None
+        else:
+            min_days = st.number_input("Dias mínimos de permanência", min_value=1, max_value=90, value=1, key="stop_add_min_days")
+            d1 = d2 = date.today()
+        submitted = st.form_submit_button("Salvar localidade", use_container_width=True)
+        if submitted:
+            if not location.strip():
+                st.error("Localidade é obrigatória.")
+            else:
+                st.session_state.stops.append(
+                    Stop(
+                        location=location.strip().upper(),
+                        constraint_type="fixed_window" if constraint_type == "Janela fixa" else "flexible_days",
+                        window_start=d1.isoformat() if constraint_type == "Janela fixa" else None,
+                        window_end=d2.isoformat() if constraint_type == "Janela fixa" else None,
+                        min_days=int(min_days) if constraint_type != "Janela fixa" else None,
+                    )
+                )
+                st.success("Localidade adicionada.")
+                st.rerun()
+
+    # Lista e edição depois
     if st.session_state.stops:
+        # Validação de dias planejados x dias de viagem
+        trip_span = (st.session_state.trip_end_date - st.session_state.trip_start_date).days
+        min_days_required = 0
+        for s in st.session_state.stops:
+            if s.constraint_type == "fixed_window" and s.window_start and s.window_end:
+                try:
+                    d1 = date.fromisoformat(s.window_start)
+                    d2 = date.fromisoformat(s.window_end)
+                    min_days_required += max(0, (d2 - d1).days)
+                except Exception:
+                    pass
+            else:
+                min_days_required += s.min_days or 0
+        if min_days_required > trip_span:
+            st.error(f"Os dias mínimos das localidades ({min_days_required}) excedem os dias da viagem ({trip_span}).")
+
         rows = [
             {
                 "id": s.id[:8],
@@ -131,7 +195,7 @@ def render_stops():
                 "tipo": "Janela fixa" if s.constraint_type == "fixed_window" else "Dias mínimos",
                 "inicio": s.window_start or "-",
                 "fim": s.window_end or "-",
-                "min_dias": s.min_days or "-",
+                "min_dias": str(s.min_days or "-"),
             }
             for s in st.session_state.stops
         ]
@@ -147,7 +211,7 @@ def render_stops():
             index=0 if selected.constraint_type == "fixed_window" else 1,
             key="stop_edit_constraint",
         )
-        location = st.text_input("Localidade", value=selected.location, key="stop_edit_location")
+        location = render_location_picker(st, "Localidade", "stop_edit_location", selected.location)
         if constraint_type == "Janela fixa":
             d1 = st.date_input(
                 "Início da janela", key="stop_edit_start", value=date.fromisoformat(selected.window_start or date.today().isoformat())
@@ -177,34 +241,6 @@ def render_stops():
             st.session_state.stops = [s for s in st.session_state.stops if s.id != selected.id]
             st.warning("Localidade removida.")
             st.rerun()
-
-    st.subheader("Adicionar localidade")
-    constraint_type = st.radio("Tipo de restrição", ["Janela fixa", "Dias mínimos"], horizontal=True, key="stop_add_constraint")
-    with st.form("stop_add_form", clear_on_submit=True):
-        location = st.text_input("Localidade", key="stop_add_location")
-        if constraint_type == "Janela fixa":
-            d1 = st.date_input("Início da janela", key="stop_add_start", value=date.today())
-            d2 = st.date_input("Fim da janela", key="stop_add_end", value=date.today())
-            min_days = None
-        else:
-            min_days = st.number_input("Dias mínimos de permanência", min_value=1, max_value=90, value=1, key="stop_add_min_days")
-            d1 = d2 = date.today()
-        submitted = st.form_submit_button("Salvar localidade", use_container_width=True)
-        if submitted:
-            if not location.strip():
-                st.error("Localidade é obrigatória.")
-            else:
-                st.session_state.stops.append(
-                    Stop(
-                        location=location.strip().upper(),
-                        constraint_type="fixed_window" if constraint_type == "Janela fixa" else "flexible_days",
-                        window_start=d1.isoformat() if constraint_type == "Janela fixa" else None,
-                        window_end=d2.isoformat() if constraint_type == "Janela fixa" else None,
-                        min_days=int(min_days) if constraint_type != "Janela fixa" else None,
-                    )
-                )
-                st.success("Localidade adicionada.")
-                st.rerun()
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -236,7 +272,7 @@ def cached_search(req_payload: dict):
         stops=stops,
         travelers=travelers,
         currency=req_payload["currency"],
-        max_items=req_payload.get("max_items", 40),
+        max_items=req_payload.get("max_items", config.DEFAULT_MAX_ITEMS),
         trip_start_location=req_payload.get("trip_start_location"),
         trip_start_date=req_payload.get("trip_start_date"),
         trip_end_location=req_payload.get("trip_end_location"),
@@ -274,7 +310,7 @@ def build_request_payload():
         "stops": stops,
         "travelers": travelers,
         "currency": currency,
-        "max_items": 40,
+        "max_items": config.DEFAULT_MAX_ITEMS,
         "trip_start_location": st.session_state.trip_start_location,
         "trip_start_date": st.session_state.trip_start_date.isoformat() if isinstance(st.session_state.trip_start_date, date) else None,
         "trip_end_location": st.session_state.trip_end_location,

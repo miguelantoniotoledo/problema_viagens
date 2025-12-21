@@ -190,3 +190,7 @@ O modelo de otimização de custos de viagem, baseado na formulação de Program
    streamlit run src/app.py
    ```
 3. A UI usa os mocks locais (`voos.json`, `hoteis.json`, `aluguel_carros.json`) para gerar o JSON consumido pelo módulo de otimização.
+### Configurações
+- `src/config.py`: centraliza `SCRAPER_MODE` (mock/live), `PLAYWRIGHT_HEADLESS`, `DEFAULT_MAX_ITEMS` e `GAP_FILL_DAYS`.
+- Para usar scraping real (Kayak) com Playwright, defina `SCRAPER_MODE="live"` no config ou via vari�vel de ambiente e rode `python -m playwright install chromium` antes.
+- `LOCATIONS_FILES`: lista de CSVs com localidades (IATA/cidade/UF). Ajuste para trocar o dataset de autocomplete (atual: `data/br-airports.csv` e `data/us-airports.csv`).

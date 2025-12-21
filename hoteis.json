@@ -8,5 +8,35 @@
         "cidade_id":"GIG",
         "nome":"Hotel GIG Padrao",
         "custo_diaria":350
+    },
+    {
+        "cidade_id":"MIA",
+        "nome":"Hotel MIA Econ",
+        "custo_diaria":180
+    },
+    {
+        "cidade_id":"MIA",
+        "nome":"Hotel MIA Premium",
+        "custo_diaria":320
+    },
+    {
+        "cidade_id":"ATL",
+        "nome":"Hotel ATL Econ",
+        "custo_diaria":150
+    },
+    {
+        "cidade_id":"ATL",
+        "nome":"Hotel ATL Premium",
+        "custo_diaria":280
+    },
+    {
+        "cidade_id":"ORL",
+        "nome":"Hotel ORL Econ",
+        "custo_diaria":160
+    },
+    {
+        "cidade_id":"ORL",
+        "nome":"Hotel ORL Premium",
+        "custo_diaria":300
     }
 ]
