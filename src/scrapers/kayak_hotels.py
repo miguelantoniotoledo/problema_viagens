@@ -11,6 +11,11 @@ MOCK_FILE = Path("hoteis.json")
 
 
 def load_mock() -> List[Dict[str, Any]]:
+    """Carrega o JSON mock de hotéis.
+
+    Returns:
+        Lista de hotéis mockados.
+    """
     if not MOCK_FILE.exists():
         return []
     with MOCK_FILE.open("r", encoding="utf-8") as f:
@@ -21,8 +26,9 @@ def scrape_hotels(req: SearchRequest, stays: List[Dict[str, Any]]) -> List[Dict[
     """Mock de scraping de hotéis (Kayak), gerando opções por estada.
 
     Args:
-        req: dados globais da busca (moeda, travelers).
+        req: dados globais da busca (moeda, viajantes).
         stays: lista de estadas {location, checkin, checkout, nights, type}.
+
     Returns:
         Lista de hotéis candidatos com preço total e metadados.
     """
@@ -60,7 +66,15 @@ def scrape_hotels(req: SearchRequest, stays: List[Dict[str, Any]]) -> List[Dict[
 
 
 def _scrape_hotels_live(req: SearchRequest, stays: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Scraping real de hotéis no Kayak usando Playwright (top 20)."""
+    """Scraping real de hotéis no Kayak usando Playwright (top 20).
+
+    Args:
+        req: dados globais da busca (moeda, viajantes).
+        stays: estadas a pesquisar.
+
+    Returns:
+        Lista de hotéis encontrados com preços convertidos e detalhes.
+    """
     results: List[Dict[str, Any]] = []
     with open_browser(headless=True) as (_, context):
         page = context.new_page()

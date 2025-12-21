@@ -9,7 +9,14 @@ from src.scrapers.playwright_client import open_browser, should_use_live_scraper
 
 
 def parse_iso_date(value: str) -> datetime:
-    """Converte string ISO em datetime com fallback para hoje."""
+    """Converte string ISO em datetime com fallback para hoje.
+
+    Args:
+        value: data em formato ISO (YYYY-MM-DD).
+
+    Returns:
+        Instância de datetime correspondente ou a data atual em fallback.
+    """
     try:
         return datetime.fromisoformat(value)
     except Exception:
@@ -20,6 +27,11 @@ MOCK_FILE = Path("aluguel_carros.json")
 
 
 def load_mock() -> List[Dict[str, Any]]:
+    """Carrega o JSON mock de aluguel de carros.
+
+    Returns:
+        Lista de ofertas mockadas.
+    """
     if not MOCK_FILE.exists():
         return []
     with MOCK_FILE.open("r", encoding="utf-8") as f:
@@ -27,7 +39,15 @@ def load_mock() -> List[Dict[str, Any]]:
 
 
 def _days_between(start: str, end: str) -> int:
-    """Calcula número de dias entre duas datas ISO (mínimo 1)."""
+    """Calcula número de dias entre duas datas ISO (mínimo 1).
+
+    Args:
+        start: data inicial em ISO.
+        end: data final em ISO.
+
+    Returns:
+        Número de dias, sempre ao menos 1.
+    """
     d1 = parse_iso_date(start)
     d2 = parse_iso_date(end)
     delta = (d2 - d1).days
@@ -38,10 +58,11 @@ def scrape_cars(req: SearchRequest, rentals: List[Dict[str, Any]]) -> List[Dict[
     """Mock de scraping de carros (Kayak) por blocos de locação.
 
     Args:
-        req: dados globais (moeda, travelers).
+        req: dados globais (moeda, viajantes).
         rentals: blocos {pickup, dropoff, pickup_date, dropoff_date}.
+
     Returns:
-        Lista de ofertas de aluguel com preço total.
+        Lista de ofertas de aluguel com preço total convertido.
     """
     if should_use_live_scraper():
         try:
@@ -76,7 +97,15 @@ def scrape_cars(req: SearchRequest, rentals: List[Dict[str, Any]]) -> List[Dict[
 
 
 def _scrape_cars_live(req: SearchRequest, rentals: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Scraping real de carros no Kayak usando Playwright (top 20)."""
+    """Scraping real de carros no Kayak usando Playwright (top 20).
+
+    Args:
+        req: dados globais (moeda, viajantes).
+        rentals: blocos de locação a pesquisar.
+
+    Returns:
+        Lista de carros encontrados com preços convertidos e detalhes.
+    """
     results: List[Dict[str, Any]] = []
     with open_browser(headless=True) as (_, context):
         page = context.new_page()

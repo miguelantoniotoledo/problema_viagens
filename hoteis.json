@@ -38,5 +38,15 @@
         "cidade_id":"ORL",
         "nome":"Hotel ORL Premium",
         "custo_diaria":300
+    },
+    {
+        "cidade_id":"NYS",
+        "nome":"Hotel NYS Econ",
+        "custo_diaria":220
+    },
+    {
+        "cidade_id":"NYS",
+        "nome":"Hotel NYS Premium",
+        "custo_diaria":400
     }
 ]

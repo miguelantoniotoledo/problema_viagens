@@ -43,5 +43,10 @@
         "cidade_id":"ORL",
         "nome":"Locadora ORL 1",
         "custo_diaria":80
+    },
+    {
+        "cidade_id":"NYS",
+        "nome":"Locadora NYS 1",
+        "custo_diaria":95
     }
 ]

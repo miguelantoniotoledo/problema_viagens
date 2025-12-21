@@ -11,6 +11,11 @@ MOCK_FILE = Path("voos.json")
 
 
 def load_mock() -> List[Dict[str, Any]]:
+    """Carrega o JSON mock de voos.
+
+    Returns:
+        Lista de registros de voos mockados.
+    """
     if not MOCK_FILE.exists():
         return []
     with MOCK_FILE.open("r", encoding="utf-8") as f:
@@ -18,13 +23,14 @@ def load_mock() -> List[Dict[str, Any]]:
 
 
 def scrape_flights(req: SearchRequest, legs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Mock de scraping de voos (Kayak), filtrando legs e preços por viajantes.
+    """Mock de scraping de voos (Kayak), filtrando pernas e preços por viajantes.
 
     Args:
-        req: dados globais da busca (moeda, travelers).
-        legs: lista de pernas {origin,destination,departure,arrival}.
+        req: dados globais da busca (moeda, viajantes).
+        legs: lista de pernas {origin, destination, departure, arrival}.
+
     Returns:
-        Lista de voos candidatos com preço total e metadados.
+        Lista de voos candidatos com preço total convertido e metadados.
     """
     if should_use_live_scraper():
         try:
@@ -60,7 +66,15 @@ def scrape_flights(req: SearchRequest, legs: List[Dict[str, Any]]) -> List[Dict[
 def _scrape_flights_live(req: SearchRequest, legs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Scraping real de voos no Kayak usando Playwright (top 20).
 
-    Observação: seletores podem mudar; ajuste conforme inspeção real.
+    Args:
+        req: dados globais da busca (moeda, viajantes).
+        legs: lista de pernas a pesquisar.
+
+    Returns:
+        Lista de voos encontrados com preços convertidos e detalhes.
+
+    Nota:
+        Seletores podem mudar; ajuste conforme inspeção real.
     """
     results: List[Dict[str, Any]] = []
     with open_browser(headless=True) as (_, context):

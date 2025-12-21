@@ -33,5 +33,40 @@
         "custo_voo_pessoa":550,
         "origem_id":"ORL",
         "destino_id":"GYN"
+    },
+    {
+        "custo_voo_pessoa":480,
+        "origem_id":"MIA",
+        "destino_id":"NYS"
+    },
+    {
+        "custo_voo_pessoa":300,
+        "origem_id":"NYS",
+        "destino_id":"ORL"
+    },
+    {
+        "custo_voo_pessoa":320,
+        "origem_id":"ORL",
+        "destino_id":"NYS"
+    },
+    {
+        "custo_voo_pessoa":280,
+        "origem_id":"ATL",
+        "destino_id":"NYS"
+    },
+    {
+        "custo_voo_pessoa":280,
+        "origem_id":"NYS",
+        "destino_id":"ATL"
+    },
+    {
+        "custo_voo_pessoa":700,
+        "origem_id":"NYS",
+        "destino_id":"GYN"
+    },
+    {
+        "custo_voo_pessoa":700,
+        "origem_id":"GYN",
+        "destino_id":"NYS"
     }
 ]

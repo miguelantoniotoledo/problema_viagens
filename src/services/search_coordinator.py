@@ -13,7 +13,14 @@ from src.utils.geo import drive_distance_and_time
 
 
 def _parse_date(value: str) -> datetime:
-    """Converte string ISO em datetime com fallback para hoje."""
+    """Converte string ISO em datetime com fallback para hoje.
+
+    Args:
+        value: data em formato ISO (YYYY-MM-DD ou YYYY-MM-DDTHH:MM:SS).
+
+    Returns:
+        Objeto datetime correspondente ou a data/hora atual em fallback.
+    """
     try:
         return datetime.fromisoformat(value)
     except Exception:
@@ -21,7 +28,16 @@ def _parse_date(value: str) -> datetime:
 
 
 def _compute_stop_windows(stops: List[Stop], trip_start: datetime, trip_end: datetime) -> List[Dict[str, Any]]:
-    """Calcula janelas efetivas para cada localidade, limitando ao intervalo da viagem."""
+    """Calcula janelas efetivas para cada localidade, limitando ao intervalo da viagem.
+
+    Args:
+        stops: lista de localidades com restrições.
+        trip_start: data/hora inicial da viagem.
+        trip_end: data/hora final da viagem.
+
+    Returns:
+        Lista de janelas normalizadas com início/fim ajustados ao intervalo da viagem.
+    """
     windows = []
     for stop in stops:
         start = _parse_date(stop.window_start) if stop.window_start else trip_start
@@ -33,7 +49,18 @@ def _compute_stop_windows(stops: List[Stop], trip_start: datetime, trip_end: dat
 
 
 def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: datetime, start_loc: str, end_loc: str):
-    """Gera todas as combinações (permutando flex) com estadas/legs; sem gap final."""
+    """Gera combinações (permutando flex) com estadas e pernas; sem gap final.
+
+    Args:
+        stops: lista de localidades (fixas e flexíveis).
+        trip_start: data/hora inicial da viagem.
+        trip_end: data/hora final da viagem.
+        start_loc: local de partida da viagem.
+        end_loc: local de chegada da viagem.
+
+    Returns:
+        Tuple (stays, legs, warnings, scenarios) com estadas, pernas, avisos e cenários testados.
+    """
     fixed = [s for s in stops if s.constraint_type == "fixed_window"]
     flex = [s for s in stops if s.constraint_type != "fixed_window"]
     fixed_sorted = sorted(fixed, key=lambda s: _parse_date(s.window_start) or trip_start)
@@ -46,6 +73,10 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
         warnings.append("Stops flexíveis > 6, mantendo ordem de entrada.")
 
     for order in flex_orders:
+        # Evita combinações onde a mesma cidade fica em sequência (ex.: MIA -> MIA)
+        sequence = [s.location for s in fixed_sorted] + [s.location for s in order]
+        if any(sequence[i] == sequence[i - 1] for i in range(1, len(sequence))):
+            continue
         stays: List[Dict[str, Any]] = []
         current_date = trip_start
         feasible = True
@@ -161,7 +192,16 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
 
 
 def _build_stays(windows: List[Dict[str, Any]], trip_start: datetime, trip_end: datetime) -> List[Dict[str, Any]]:
-    """Cria estadas principais e estadas de gap (até GAP_FILL_DAYS)."""
+    """Cria estadas principais e estadas de gap (até GAP_FILL_DAYS).
+
+    Args:
+        windows: janelas calculadas para cada localidade.
+        trip_start: início da viagem.
+        trip_end: fim da viagem.
+
+    Returns:
+        Lista de estadas ordenadas.
+    """
     stays: List[Dict[str, Any]] = []
     prev_end = trip_start
     for w in windows:
@@ -206,7 +246,14 @@ def _build_stays(windows: List[Dict[str, Any]], trip_start: datetime, trip_end: 
 
 
 def _build_rentals(legs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Cria blocos de locação de carro correspondentes às pernas."""
+    """Cria blocos de locação de carro correspondentes às pernas.
+
+    Args:
+        legs: pernas calculadas da viagem.
+
+    Returns:
+        Lista de blocos de locação para cada perna.
+    """
     rentals: List[Dict[str, Any]] = []
     for leg in legs:
         rentals.append(
@@ -222,9 +269,26 @@ def _build_rentals(legs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def run_search(req: SearchRequest) -> SearchResponse:
-    """Orquestra cálculo de pernas/estadas e chama scrapers mockados."""
+    """Orquestra cálculo de pernas/estadas e chama scrapers mockados.
+
+    Args:
+        req: objeto de requisição com viagem, stops e viajantes.
+
+    Returns:
+        SearchResponse com voos, hotéis, carros e metadados.
+    """
     trip_start = _parse_date(req.trip_start_date) if req.trip_start_date else datetime.today()
-    trip_end = _parse_date(req.trip_end_date) if req.trip_end_date else trip_start
+    # Se não houver data final, sugerir como start + min_days_required
+    min_days_required = sum(
+        [
+            (s.min_days or 0) if s.constraint_type != "fixed_window" else max(0, (_parse_date(s.window_end) - _parse_date(s.window_start)).days)
+            for s in req.stops
+        ]
+    )
+    if req.trip_end_date:
+        trip_end = _parse_date(req.trip_end_date)
+    else:
+        trip_end = trip_start + timedelta(days=min_days_required)
     stays, legs, warnings, scenarios = _build_stays_and_legs(req.stops, trip_start, trip_end, req.trip_start_location or "", req.trip_end_location or "")
     rentals = _build_rentals(legs)
 
@@ -248,6 +312,8 @@ def run_search(req: SearchRequest) -> SearchResponse:
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "max_items": req.max_items,
         "gap_fill_days": config.GAP_FILL_DAYS,
+        "min_days_required": sum([(s.min_days or 0) if s.constraint_type != "fixed_window" else max(0, (_parse_date(s.window_end) - _parse_date(s.window_start)).days) for s in req.stops]),
+        "trip_span_days": max(0, (trip_end - trip_start).days),
         "trip": {
             "start_location": req.trip_start_location,
             "start_date": req.trip_start_date,
