@@ -5,7 +5,14 @@ from typing import List, Dict, Any
 
 from src.models import SearchRequest, RentalBlock
 from src.utils.normalization import convert_currency
-from src.utils.rental_blocks import parse_iso_date
+from datetime import datetime
+
+
+def parse_iso_date(value: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value)
+    except Exception:
+        return datetime.today()
 
 
 MOCK_FILE = Path("aluguel_carros.json")

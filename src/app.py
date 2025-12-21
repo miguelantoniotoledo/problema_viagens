@@ -11,12 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
-from src.models import (  # noqa: E402
-    TravelerProfile,
-    Segment,
-    SegmentType,
-    SearchRequest,
-)
+from src.models import TravelerProfile, Stop, SearchRequest  # noqa: E402
 from src.services.search_coordinator import run_search  # noqa: E402
 
 
@@ -25,99 +20,191 @@ st.title("Planejador de Viagens (Mock Kayak)")
 
 
 def init_state():
-    if "travelers" not in st.session_state:
-        st.session_state.travelers: List[TravelerProfile] = [
-            TravelerProfile(name="Viajante 1", age=30, category="adult")
-        ]
-    if "segments" not in st.session_state:
-        st.session_state.segments: List[Segment] = []
-    if "currency" not in st.session_state:
-        st.session_state.currency = "USD"
+    st.session_state.setdefault("travelers", [])
+    st.session_state.setdefault("stops", [])
+    st.session_state.setdefault("currency", "USD")
+    st.session_state.setdefault("trip_start_location", "")
+    st.session_state.setdefault("trip_end_location", "")
+    st.session_state.setdefault("trip_start_date", date.today())
+    st.session_state.setdefault("trip_end_date", date.today())
 
 
 init_state()
 
 
-def add_traveler():
-    with st.expander("Adicionar viajante"):
-        name = st.text_input("Nome", key="trav_name")
-        age = st.number_input("Idade", min_value=0, max_value=120, value=30, key="trav_age")
-        category = st.selectbox("Categoria", ["adult", "child", "infant"], key="trav_category")
-        couple_group_id = st.text_input("Grupo de casal (opcional)", key="trav_couple")
-        bed_pref = st.selectbox(
-            "Preferência de leito", ["any", "double", "queen", "king", "twin"], index=0, key="trav_bed"
-        )
-        if st.button("Salvar viajante"):
-            st.session_state.travelers.append(
-                TravelerProfile(
-                    name=name or f"Viajante {len(st.session_state.travelers)+1}",
-                    age=int(age),
-                    category=category,
-                    couple_group_id=couple_group_id or None,
-                    bed_pref=bed_pref if bed_pref != "any" else None,
-                )
-            )
-            st.success("Viajante adicionado.")
+def render_trip_constraints():
+    st.subheader("Parâmetros da viagem (início/fim)")
+    col1, col2 = st.columns(2)
+    st.session_state.trip_start_location = col1.text_input("Local de início da viagem", value=st.session_state.trip_start_location)
+    col2.date_input("Data de início", key="trip_start_date")
+    col3, col4 = st.columns(2)
+    st.session_state.trip_end_location = col3.text_input("Local de término da viagem", value=st.session_state.trip_end_location)
+    col4.date_input("Data de término", key="trip_end_date")
 
 
 def render_travelers():
     st.subheader("Viajantes (pax global)")
-    rows = [
-        {
-            "nome": t.name,
-            "idade": t.age,
-            "categoria": t.category,
-            "casal": t.couple_group_id or "-",
-            "leito": t.bed_pref or "-",
-        }
-        for t in st.session_state.travelers
-    ]
-    st.table(rows)
-    add_traveler()
-
-
-def add_segment():
-    with st.expander("Adicionar trecho"):
-        col1, col2, col3 = st.columns(3)
-        origin = col1.text_input("Origem", key="seg_origin")
-        destination = col2.text_input("Destino", key="seg_destination")
-        transport_str = col3.selectbox("Meio de transporte", [t.value for t in SegmentType], key="seg_transport")
-        d1 = col1.date_input("Data de saída", key="seg_departure", value=date.today())
-        d2 = col2.date_input("Data de chegada", key="seg_arrival", value=date.today())
-        keep_car = False
-        if transport_str == SegmentType.CAR.value:
-            keep_car = st.checkbox("Manter carro para próximos trechos contíguos?", key="seg_keep_car")
-        if st.button("Salvar trecho"):
-            st.session_state.segments.append(
-                Segment(
-                    origin=origin.strip().upper(),
-                    destination=destination.strip().upper(),
-                    departure=d1.isoformat(),
-                    arrival=d2.isoformat(),
-                    transport=SegmentType(transport_str),
-                    keep_car_until_next=keep_car,
-                )
-            )
-            st.success("Trecho adicionado.")
-
-
-def render_segments():
-    st.subheader("Trechos")
-    if st.session_state.segments:
+    if st.session_state.travelers:
         rows = [
             {
-                "id": seg.id[:8],
-                "origem": seg.origin,
-                "destino": seg.destination,
-                "saida": seg.departure,
-                "chegada": seg.arrival,
-                "meio": seg.transport.value,
-                "keep_car": seg.keep_car_until_next,
+                "nome": t.name,
+                "idade": t.age,
+                "categoria": t.category,
+                "par": next((p.name for p in st.session_state.travelers if p.id == t.partner_id), "-"),
+                "leito": t.bed_pref or "-",
             }
-            for seg in st.session_state.segments
+            for t in st.session_state.travelers
         ]
         st.table(rows)
-    add_segment()
+
+    with st.expander("Adicionar viajante"):
+        with st.form("trav_add_form", clear_on_submit=True):
+            name = st.text_input("Nome", key="trav_add_name")
+            age = st.number_input("Idade", min_value=0, max_value=120, value=30, key="trav_add_age")
+            category = st.selectbox("Categoria", ["adult", "child", "infant"], key="trav_add_category")
+            bed_pref = st.selectbox("Preferência de leito", ["any", "double", "queen", "king", "twin"], index=0, key="trav_add_bed")
+            submitted = st.form_submit_button("Salvar viajante", use_container_width=True)
+            if submitted:
+                st.session_state.travelers.append(
+                    TravelerProfile(
+                        name=name or f"Viajante {len(st.session_state.travelers)+1}",
+                        age=int(age),
+                        category=category,
+                        bed_pref=bed_pref if bed_pref != "any" else None,
+                    )
+                )
+                st.success("Viajante adicionado.")
+                st.rerun()
+
+    if st.session_state.travelers:
+        st.write("Editar/Remover viajante")
+        options = {f"{t.name} ({t.id[:6]})": t for t in st.session_state.travelers}
+        label = st.selectbox("Selecione para editar", list(options.keys()), key="trav_edit_select")
+        selected = options[label]
+        new_name = st.text_input("Nome", value=selected.name, key="trav_edit_name")
+        new_age = st.number_input("Idade", min_value=0, max_value=120, value=selected.age, key="trav_edit_age")
+        new_category = st.selectbox("Categoria", ["adult", "child", "infant"], index=["adult", "child", "infant"].index(selected.category), key="trav_edit_category")
+        new_bed = st.selectbox(
+            "Preferência de leito",
+            ["any", "double", "queen", "king", "twin"],
+            index=0 if not selected.bed_pref else ["any", "double", "queen", "king", "twin"].index(selected.bed_pref),
+            key="trav_edit_bed",
+        )
+        partner_options = ["Nenhum"] + [f"{t.name} ({t.id[:6]})" for t in st.session_state.travelers if t.id != selected.id]
+        current_partner_label = "Nenhum"
+        if selected.partner_id:
+            partner = next((t for t in st.session_state.travelers if t.id == selected.partner_id), None)
+            if partner:
+                current_partner_label = f"{partner.name} ({partner.id[:6]})"
+        partner_choice = st.selectbox("Forma casal com algum viajante?", partner_options, index=partner_options.index(current_partner_label), key="trav_edit_partner")
+        cols = st.columns(2)
+        if cols[0].button("Salvar alterações", key="trav_edit_save"):
+            selected.name = new_name or selected.name
+            selected.age = int(new_age)
+            selected.category = new_category
+            selected.bed_pref = None if new_bed == "any" else new_bed
+            new_partner_id = None
+            if partner_choice != "Nenhum":
+                partner = next(t for t in st.session_state.travelers if f"{t.name} ({t.id[:6]})" == partner_choice)
+                new_partner_id = partner.id
+                partner.partner_id = selected.id
+            if selected.partner_id and selected.partner_id != new_partner_id:
+                old_partner = next((t for t in st.session_state.travelers if t.id == selected.partner_id), None)
+                if old_partner:
+                    old_partner.partner_id = None
+            selected.partner_id = new_partner_id
+            st.success("Viajante atualizado.")
+            st.rerun()
+        if cols[1].button("Remover viajante", key="trav_edit_remove"):
+            st.session_state.travelers = [t for t in st.session_state.travelers if t.id != selected.id]
+            st.warning("Viajante removido.")
+            st.rerun()
+
+
+def render_stops():
+    st.subheader("Localidades (janela fixa ou dias mínimos)")
+    if st.session_state.stops:
+        rows = [
+            {
+                "id": s.id[:8],
+                "local": s.location,
+                "tipo": "Janela fixa" if s.constraint_type == "fixed_window" else "Dias mínimos",
+                "inicio": s.window_start or "-",
+                "fim": s.window_end or "-",
+                "min_dias": s.min_days or "-",
+            }
+            for s in st.session_state.stops
+        ]
+        st.table(rows)
+        st.write("Editar/Remover localidade")
+        options = {f"{s.location} ({s.id[:6]})": s for s in st.session_state.stops}
+        label = st.selectbox("Selecione para editar", list(options.keys()), key="stop_edit_select")
+        selected = options[label]
+        constraint_type = st.radio(
+            "Tipo de restrição",
+            ["Janela fixa", "Dias mínimos"],
+            horizontal=True,
+            index=0 if selected.constraint_type == "fixed_window" else 1,
+            key="stop_edit_constraint",
+        )
+        location = st.text_input("Localidade", value=selected.location, key="stop_edit_location")
+        if constraint_type == "Janela fixa":
+            d1 = st.date_input(
+                "Início da janela", key="stop_edit_start", value=date.fromisoformat(selected.window_start or date.today().isoformat())
+            )
+            d2 = st.date_input(
+                "Fim da janela", key="stop_edit_end", value=date.fromisoformat(selected.window_end or date.today().isoformat())
+            )
+            min_days = None
+        else:
+            min_days = st.number_input(
+                "Dias mínimos de permanência", min_value=1, max_value=90, value=selected.min_days or 1, key="stop_edit_min_days"
+            )
+            d1 = d2 = date.today()
+        cols = st.columns(2)
+        if cols[0].button("Salvar localidade", key="stop_edit_save"):
+            if not location.strip():
+                st.error("Localidade é obrigatória.")
+            else:
+                selected.location = location.strip().upper()
+                selected.constraint_type = "fixed_window" if constraint_type == "Janela fixa" else "flexible_days"
+                selected.window_start = d1.isoformat() if constraint_type == "Janela fixa" else None
+                selected.window_end = d2.isoformat() if constraint_type == "Janela fixa" else None
+                selected.min_days = int(min_days) if constraint_type != "Janela fixa" else None
+                st.success("Localidade atualizada.")
+                st.rerun()
+        if cols[1].button("Remover localidade", key="stop_edit_remove"):
+            st.session_state.stops = [s for s in st.session_state.stops if s.id != selected.id]
+            st.warning("Localidade removida.")
+            st.rerun()
+
+    st.subheader("Adicionar localidade")
+    constraint_type = st.radio("Tipo de restrição", ["Janela fixa", "Dias mínimos"], horizontal=True, key="stop_add_constraint")
+    with st.form("stop_add_form", clear_on_submit=True):
+        location = st.text_input("Localidade", key="stop_add_location")
+        if constraint_type == "Janela fixa":
+            d1 = st.date_input("Início da janela", key="stop_add_start", value=date.today())
+            d2 = st.date_input("Fim da janela", key="stop_add_end", value=date.today())
+            min_days = None
+        else:
+            min_days = st.number_input("Dias mínimos de permanência", min_value=1, max_value=90, value=1, key="stop_add_min_days")
+            d1 = d2 = date.today()
+        submitted = st.form_submit_button("Salvar localidade", use_container_width=True)
+        if submitted:
+            if not location.strip():
+                st.error("Localidade é obrigatória.")
+            else:
+                st.session_state.stops.append(
+                    Stop(
+                        location=location.strip().upper(),
+                        constraint_type="fixed_window" if constraint_type == "Janela fixa" else "flexible_days",
+                        window_start=d1.isoformat() if constraint_type == "Janela fixa" else None,
+                        window_end=d2.isoformat() if constraint_type == "Janela fixa" else None,
+                        min_days=int(min_days) if constraint_type != "Janela fixa" else None,
+                    )
+                )
+                st.success("Localidade adicionada.")
+                st.rerun()
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -127,29 +214,33 @@ def cached_search(req_payload: dict):
             name=t["name"],
             age=t["age"],
             category=t["category"],
-            couple_group_id=t.get("couple_group_id"),
+            partner_id=t.get("partner_id"),
             bed_pref=t.get("bed_pref"),
             id=t.get("id"),
         )
         for t in req_payload["travelers"]
     ]
-    segments = [
-        Segment(
-            origin=s["origin"],
-            destination=s["destination"],
-            departure=s["departure"],
-            arrival=s.get("arrival"),
-            transport=SegmentType(s["transport"]),
-            keep_car_until_next=s.get("keep_car_until_next", False),
+    stops = [
+        Stop(
+            location=s["location"],
+            constraint_type=s["constraint_type"],
+            window_start=s.get("window_start"),
+            window_end=s.get("window_end"),
+            min_days=s.get("min_days"),
             id=s.get("id"),
         )
-        for s in req_payload["segments"]
+        for s in req_payload["stops"]
     ]
     req = SearchRequest(
-        segments=segments,
+        segments=[],  # não definimos trechos; o otimizador decidirá
+        stops=stops,
         travelers=travelers,
         currency=req_payload["currency"],
         max_items=req_payload.get("max_items", 40),
+        trip_start_location=req_payload.get("trip_start_location"),
+        trip_start_date=req_payload.get("trip_start_date"),
+        trip_end_location=req_payload.get("trip_end_location"),
+        trip_end_date=req_payload.get("trip_end_date"),
     )
     result = run_search(req)
     return result.to_jsonable()
@@ -161,26 +252,34 @@ def build_request_payload():
             "name": t.name,
             "age": t.age,
             "category": t.category,
-            "couple_group_id": t.couple_group_id,
+            "partner_id": t.partner_id,
             "bed_pref": t.bed_pref,
             "id": t.id,
         }
         for t in st.session_state.travelers
     ]
-    segments = [
+    stops = [
         {
-            "origin": s.origin,
-            "destination": s.destination,
-            "departure": s.departure,
-            "arrival": s.arrival,
-            "transport": s.transport.value,
-            "keep_car_until_next": s.keep_car_until_next,
+            "location": s.location,
+            "constraint_type": s.constraint_type,
+            "window_start": s.window_start,
+            "window_end": s.window_end,
+            "min_days": s.min_days,
             "id": s.id,
         }
-        for s in st.session_state.segments
+        for s in st.session_state.stops
     ]
     currency = st.session_state.currency
-    return {"segments": segments, "travelers": travelers, "currency": currency, "max_items": 40}
+    return {
+        "stops": stops,
+        "travelers": travelers,
+        "currency": currency,
+        "max_items": 40,
+        "trip_start_location": st.session_state.trip_start_location,
+        "trip_start_date": st.session_state.trip_start_date.isoformat() if isinstance(st.session_state.trip_start_date, date) else None,
+        "trip_end_location": st.session_state.trip_end_location,
+        "trip_end_date": st.session_state.trip_end_date.isoformat() if isinstance(st.session_state.trip_end_date, date) else None,
+    }
 
 
 def render_currency_selector():
@@ -203,6 +302,7 @@ def render_search_and_results():
         )
 
 
+render_trip_constraints()
 render_travelers()
-render_segments()
+render_stops()
 render_search_and_results()

@@ -6,16 +6,12 @@ from src.scrapers.kayak_flights import scrape_flights
 from src.scrapers.kayak_hotels import scrape_hotels
 from src.scrapers.kayak_cars import scrape_cars
 from src.utils.normalization import cap_results
-from src.utils.rental_blocks import build_rental_blocks
 
 
 def run_search(req: SearchRequest) -> SearchResponse:
-    traveler_ids = [t.id for t in req.travelers]
-    rental_blocks = build_rental_blocks(req.segments, traveler_ids)
-
     flights = cap_results(scrape_flights(req), req.max_items)
     hotels = cap_results(scrape_hotels(req), req.max_items)
-    cars = cap_results(scrape_cars(req, rental_blocks), req.max_items)
+    cars = cap_results(scrape_cars(req, []), req.max_items)
 
     meta: Dict[str, Any] = {
         "currency": req.currency,
@@ -25,22 +21,30 @@ def run_search(req: SearchRequest) -> SearchResponse:
                 "age": t.age,
                 "category": t.category,
                 "id": t.id,
-                "couple_group_id": t.couple_group_id,
+                "partner_id": t.partner_id,
                 "bed_pref": t.bed_pref,
             }
             for t in req.travelers
         ],
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "max_items": req.max_items,
-        "rental_blocks": [
+        "rental_blocks": [],
+        "trip": {
+            "start_location": req.trip_start_location,
+            "start_date": req.trip_start_date,
+            "end_location": req.trip_end_location,
+            "end_date": req.trip_end_date,
+        },
+        "stops": [
             {
-                "pickup": b.pickup_location,
-                "dropoff": b.dropoff_location,
-                "pickup_date": b.pickup_date,
-                "dropoff_date": b.dropoff_date,
-                "segments": b.linked_segments,
+                "location": s.location,
+                "constraint_type": s.constraint_type,
+                "window_start": s.window_start,
+                "window_end": s.window_end,
+                "min_days": s.min_days,
+                "id": s.id,
             }
-            for b in rental_blocks
+            for s in req.stops
         ],
     }
 

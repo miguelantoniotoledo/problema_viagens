@@ -20,7 +20,7 @@ class TravelerProfile:
     name: str
     age: int
     category: str  # adult/child/infant
-    couple_group_id: Optional[str] = None
+    partner_id: Optional[str] = None  # referência para outro viajante
     bed_pref: Optional[str] = None  # double/queen/king/twin/any
     id: str = field(default_factory=make_id)
 
@@ -29,10 +29,24 @@ class TravelerProfile:
 class Segment:
     origin: str
     destination: str
-    departure: str
-    arrival: Optional[str]
+    departure: str  # data escolhida (ou início da janela)
+    arrival: Optional[str]  # fim da janela (quando aplicável)
     transport: SegmentType
+    constraint_type: str = "fixed_window"  # fixed_window | flexible_days
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
+    flexible_days: Optional[int] = None
     keep_car_until_next: bool = False
+    id: str = field(default_factory=make_id)
+
+
+@dataclass
+class Stop:
+    location: str
+    constraint_type: str  # fixed_window | flexible_days
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
+    min_days: Optional[int] = None
     id: str = field(default_factory=make_id)
 
 
@@ -49,10 +63,15 @@ class RentalBlock:
 @dataclass
 class SearchRequest:
     segments: List[Segment]
+    stops: List[Stop]
     travelers: List[TravelerProfile]
     currency: str
     cache_ttl_seconds: int = 300
     max_items: int = 40
+    trip_start_location: Optional[str] = None
+    trip_start_date: Optional[str] = None
+    trip_end_location: Optional[str] = None
+    trip_end_date: Optional[str] = None
 
 
 @dataclass
