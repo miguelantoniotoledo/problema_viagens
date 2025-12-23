@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 from urllib.parse import quote
 import re
+from bs4 import BeautifulSoup
 
 from src.models import SearchRequest
 from src.utils.normalization import convert_currency
@@ -129,22 +130,53 @@ def _scrape_cars_live(req: SearchRequest, rentals: List[Dict[str, Any]]) -> List
             )
             add_log(f"[cars] URL: {url}")
             final_url = url
-            success = False
             for attempt in range(2):
                 try:
                     page.goto(url, wait_until="domcontentloaded")
-                    page.wait_for_load_state("networkidle")
-                    page.wait_for_timeout(5000)
+                    page.wait_for_timeout(6000)
                     final_url = page.url
-                    success = True
                     break
                 except PlaywrightTimeoutError:
                     add_log(f"[cars] Timeout (tentativa {attempt+1}) ao abrir {url}")
-            if not success:
-                continue
             cards = page.query_selector_all('[data-test-vehicle-card], [data-test*="car-card"]')
             if not cards:
                 add_log(f"[cars] Nenhum card encontrado em {final_url}")
+                # Fallback com BeautifulSoup
+                soup = BeautifulSoup(page.content(), "html.parser")
+                price_nodes = soup.select(".c4nz8-price-total, .OcBh-price")
+                name_nodes = soup.select("[data-result-id] .js-title, .MseY-title")
+                agency_nodes = soup.select(".mR2O-agency-logo, .EuxN-provider")
+                for idx, node in enumerate(price_nodes[: req.max_items]):
+                    price_text = node.get_text(" ", strip=True)
+                    m = re.search(r"([0-9][0-9\\.,]*)", price_text.replace("\u00a0", " "))
+                    price_val = m.group(1) if m else "0"
+                    price_val = price_val.replace(".", "").replace(",", ".")
+                    price_source = float(price_val or 0) * len(req.travelers)
+                    name_text = name_nodes[idx].get_text(" ", strip=True) if idx < len(name_nodes) else "locadora"
+                    agency_el = agency_nodes[idx] if idx < len(agency_nodes) else None
+                    agency = None
+                    if agency_el:
+                        agency = agency_el.get("alt")
+                        if agency:
+                            agency = agency.replace("Agência do carro:", "").strip()
+                        else:
+                            agency = agency_el.get_text(" ", strip=True)
+                    results.append(
+                        {
+                            "rental_block": rental,
+                            "city": rental["pickup"],
+                            "name": name_text,
+                            "price_total": convert_currency(price_source, "BRL", req.currency),
+                            "currency": req.currency,
+                            "details": {
+                                "base_currency": "BRL",
+                                "travelers": [t.name for t in req.travelers],
+                                "days": _days_between(rental["pickup_date"], rental["dropoff_date"]),
+                                "agency": agency,
+                            },
+                        }
+                    )
+                add_log(f"[cars] Parse via fallback HTML em {final_url} ({len(results)} itens parciais)")
                 continue
             for card in cards[: req.max_items]:
                 name_el = card.query_selector('[data-test-vehicle-name]')

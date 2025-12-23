@@ -346,8 +346,8 @@ def run_search(req: SearchRequest, include_scrapers: bool = True) -> SearchRespo
     rentals = _build_rentals(all_legs, warnings)
 
     if include_scrapers:
-        flights = cap_results(scrape_flights(req, all_legs), req.max_items)
-        # Monta stays únicas para buscar hotéis em todas as combinações
+        flights = scrape_flights(req, all_legs)  # limite é por perna dentro do scraper
+        # Monta stays únicas para buscar hotéis em todas as combinações (limite por estada no scraper)
         unique_stays: List[Dict[str, Any]] = []
         seen_stay = set()
         for sc in scenarios:
@@ -357,8 +357,8 @@ def run_search(req: SearchRequest, include_scrapers: bool = True) -> SearchRespo
                     continue
                 seen_stay.add(key)
                 unique_stays.append(st)
-        hotels = cap_results(scrape_hotels(req, unique_stays), req.max_items)
-        cars = cap_results(scrape_cars(req, rentals), req.max_items)
+        hotels = scrape_hotels(req, unique_stays)
+        cars = scrape_cars(req, rentals)
     else:
         flights = []
         hotels = []

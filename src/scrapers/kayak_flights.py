@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any
 import re
+from bs4 import BeautifulSoup
 
 from src.models import SearchRequest
 from src.utils.normalization import convert_currency
@@ -90,22 +91,44 @@ def _scrape_flights_live(req: SearchRequest, legs: List[Dict[str, Any]]) -> List
             )
             add_log(f"[flights] URL: {url}")
             final_url = url
-            success = False
+            # Tenta carregar; se der timeout, ainda assim tenta ler os cards renderizados
             for attempt in range(2):
                 try:
                     page.goto(url, wait_until="domcontentloaded")
-                    page.wait_for_load_state("networkidle")
-                    page.wait_for_timeout(5000)
+                    page.wait_for_timeout(6000)
                     final_url = page.url
-                    success = True
                     break
                 except PlaywrightTimeoutError:
                     add_log(f"[flights] Timeout (tentativa {attempt+1}) ao abrir {url}")
-            if not success:
-                continue
             cards = page.query_selector_all('[data-resultid], [data-test*="result-card"]')
             if not cards:
                 add_log(f"[flights] Nenhum card encontrado em {final_url}")
+                # Fallback: parse via BeautifulSoup
+                soup = BeautifulSoup(page.content(), "html.parser")
+                price_nodes = soup.select(".e2GB-price-text")
+                for node in price_nodes[: req.max_items]:
+                    text = node.get_text(" ", strip=True)
+                    m = re.search(r"([0-9][0-9\\.,]*)", text.replace("\u00a0", " "))
+                    price_val = m.group(1) if m else "0"
+                    price_val = price_val.replace(".", "").replace(",", ".")
+                    price_source = float(price_val or 0) * len(req.travelers)
+                    results.append(
+                        {
+                            "leg": leg,
+                            "provider": "kayak",
+                            "origin": leg["origin"],
+                            "destination": leg["destination"],
+                            "departure": leg["departure"],
+                            "arrival": leg["arrival"],
+                            "price": convert_currency(price_source, "BRL", req.currency),
+                            "currency": req.currency,
+                            "details": {
+                                "travelers": [t.name for t in req.travelers],
+                                "source_currency": "BRL",
+                                "times": "",
+                            },
+                        }
+                    )
                 continue
             for card in cards[: req.max_items]:
                 price_el = None
@@ -137,8 +160,12 @@ def _scrape_flights_live(req: SearchRequest, legs: List[Dict[str, Any]]) -> List
                 price_val = m.group(1) if m else "0"
                 price_val = price_val.replace(".", "").replace(",", ".")
                 price_source = float(price_val or 0) * len(req.travelers)
-                time_el = card.query_selector('[data-test-leg-times]')
-                airline_el = card.query_selector('[data-test-airline-name]')
+                time_el = card.query_selector('[data-test-leg-times]') or card.query_selector(".vmXl-mod-variant-large")
+                airline_el = (
+                    card.query_selector('[data-test-airline-name]')
+                    or card.query_selector("img[alt]")
+                    or card.query_selector(".J0g6-operator-text")
+                )
                 if not airline_el:
                     add_log(f"[flights] Companhia aérea não encontrada para {leg['origin']}->{leg['destination']} url={url}")
                 if not time_el:

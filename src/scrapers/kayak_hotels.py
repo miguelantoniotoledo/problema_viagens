@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 from urllib.parse import quote
 import re
+from bs4 import BeautifulSoup
 
 from src.models import SearchRequest
 from src.utils.normalization import convert_currency
@@ -93,22 +94,46 @@ def _scrape_hotels_live(req: SearchRequest, stays: List[Dict[str, Any]]) -> List
             url = f"{config.KAYAK_BASE}/hotels/{slug}/{checkin}/{checkout}/{adults}adults"
             add_log(f"[hotels] URL: {url}")
             final_url = url
-            success = False
+            # Tenta carregar e mesmo com timeout tenta seguir
             for attempt in range(2):
                 try:
                     page.goto(url, wait_until="domcontentloaded")
-                    page.wait_for_load_state("networkidle")
-                    page.wait_for_timeout(5000)
+                    page.wait_for_timeout(6000)
                     final_url = page.url
-                    success = True
                     break
                 except PlaywrightTimeoutError:
                     add_log(f"[hotels] Timeout (tentativa {attempt+1}) ao abrir {url}")
-            if not success:
-                continue
             cards = page.query_selector_all('[data-hotelid], [data-test*="hotel-card"]')
             if not cards:
                 add_log(f"[hotels] Nenhum card encontrado em {final_url}")
+                # Fallback: parse via BeautifulSoup
+                soup = BeautifulSoup(page.content(), "html.parser")
+                price_nodes = soup.select(".c1XBO, .Ptt7-price")
+                name_nodes = soup.select(".c9Hnq-big-name")
+                for idx, node in enumerate(price_nodes[: req.max_items]):
+                    price_text = node.get_text(" ", strip=True)
+                    m = re.search(r"([0-9][0-9\\.,]*)", price_text.replace("\u00a0", " "))
+                    price_val = m.group(1) if m else "0"
+                    price_val = price_val.replace(".", "").replace(",", ".")
+                    price_source = float(price_val or 0) * len(req.travelers)
+                    name_text = name_nodes[idx].get_text(" ", strip=True) if idx < len(name_nodes) else "hotel"
+                    results.append(
+                        {
+                            "city": stay["location"],
+                            "name": name_text,
+                            "checkin": stay["checkin"],
+                            "checkout": stay["checkout"],
+                            "nights": stay["nights"],
+                            "price_total": convert_currency(price_source, "BRL", req.currency),
+                            "currency": req.currency,
+                            "details": {
+                                "base_currency": "BRL",
+                                "travelers": [t.name for t in req.travelers],
+                                "type": stay["type"],
+                            },
+                        }
+                    )
+                add_log(f"[hotels] Parse via fallback HTML em {final_url} ({len(results)} itens parciais)")
                 continue
             for card in cards[: req.max_items]:
                 name_el = card.query_selector('[data-test-hotel-name]')

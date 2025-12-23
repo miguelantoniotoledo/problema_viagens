@@ -20,7 +20,7 @@ SCRAPER_MODE = "live"
 PLAYWRIGHT_HEADLESS = False
 
 # Timeout padrão para navegação/seletores (ms)
-PLAYWRIGHT_TIMEOUT_MS = 45000
+PLAYWRIGHT_TIMEOUT_MS = 60000
 
 # Base do Kayak (use .com.br para melhor compatibilidade)
 KAYAK_BASE = "https://www.kayak.com.br"
