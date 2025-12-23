@@ -1,10 +1,15 @@
 import json
 from pathlib import Path
 from typing import List, Dict, Any
+from urllib.parse import quote
+import re
 
 from src.models import SearchRequest
 from src.utils.normalization import convert_currency
 from src.scrapers.playwright_client import open_browser, should_use_live_scraper
+from src import config
+from src.utils.autocomplete import search_locations
+from src.utils.logs import add_log
 
 
 MOCK_FILE = Path("hoteis.json")
@@ -33,10 +38,7 @@ def scrape_hotels(req: SearchRequest, stays: List[Dict[str, Any]]) -> List[Dict[
         Lista de hotéis candidatos com preço total e metadados.
     """
     if should_use_live_scraper():
-        try:
-            return _scrape_hotels_live(req, stays)
-        except Exception:
-            pass
+        return _scrape_hotels_live(req, stays)
     data = load_mock()
     results: List[Dict[str, Any]] = []
     for stay in stays:
@@ -76,21 +78,69 @@ def _scrape_hotels_live(req: SearchRequest, stays: List[Dict[str, Any]]) -> List
         Lista de hotéis encontrados com preços convertidos e detalhes.
     """
     results: List[Dict[str, Any]] = []
-    with open_browser(headless=True) as (_, context):
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    with open_browser(headless=config.PLAYWRIGHT_HEADLESS) as (_, context):
         page = context.new_page()
+        page.set_default_timeout(config.PLAYWRIGHT_TIMEOUT_MS)
         for stay in stays:
-            url = (
-                f"https://www.kayak.com/hotels/{stay['location']}/"
-                f"{stay['checkin']}?checkout={stay['checkout']}"
-            )
-            page.goto(url, wait_until="networkidle")
-            page.wait_for_timeout(2000)
-            cards = page.query_selector_all('[data-hotelid]')
+            checkin = (stay.get("checkin") or "").split("T")[0] or stay.get("checkin")
+            checkout = (stay.get("checkout") or "").split("T")[0] or stay.get("checkout")
+            # Usa código IATA como slug para hotéis (ex.: MIA)
+            slug = quote(stay["location"])
+            # Usa domínio configurável e inclui adultos na URL
+            adults = max(1, len([t for t in req.travelers if t.category == "adult"]))
+            url = f"{config.KAYAK_BASE}/hotels/{slug}/{checkin}/{checkout}/{adults}adults"
+            add_log(f"[hotels] URL: {url}")
+            final_url = url
+            success = False
+            for attempt in range(2):
+                try:
+                    page.goto(url, wait_until="domcontentloaded")
+                    page.wait_for_load_state("networkidle")
+                    page.wait_for_timeout(5000)
+                    final_url = page.url
+                    success = True
+                    break
+                except PlaywrightTimeoutError:
+                    add_log(f"[hotels] Timeout (tentativa {attempt+1}) ao abrir {url}")
+            if not success:
+                continue
+            cards = page.query_selector_all('[data-hotelid], [data-test*="hotel-card"]')
+            if not cards:
+                add_log(f"[hotels] Nenhum card encontrado em {final_url}")
+                continue
             for card in cards[: req.max_items]:
                 name_el = card.query_selector('[data-test-hotel-name]')
-                price_el = card.query_selector('[data-test-hotel-price]')
-                price_text = price_el.inner_text().replace("$", "").replace(",", "") if price_el else "0"
-                price_source = float(price_text or 0) * len(req.travelers)
+                price_el = None
+                price_selectors = [
+                    ".c1XBO",  # bloco principal de preСo
+                    ".Ptt7-price",
+                    "[data-test-hotel-price]",
+                    "[aria-label*='R$']",
+                    "[aria-label*='$']",
+                    "[class*='price']",
+                ]
+                for css in price_selectors:
+                    price_el = card.query_selector(css)
+                    if price_el:
+                        break
+                if not price_el:
+                    # Fallback baseado em XPath capturado
+                    price_el = page.query_selector(
+                        'xpath=//*[@id="resultWrapper"]/div[4]/div[1]/div/div/div[3]/div[3]/div/div/div[1]/div[1]/div[2]'
+                    )
+                if not price_el:
+                    price_el = page.query_selector('xpath=//*[@id="resultWrapper"]//div[contains(@class,"price")]')
+                if not price_el:
+                    add_log(f"[hotels] Nenhum elemento de preço para {stay['location']} url={url}")
+                price_text = price_el.inner_text() if price_el else "0"
+                m = re.search(r"([0-9][0-9\\.,]*)", price_text.replace("\u00a0", " "))
+                price_val = m.group(1) if m else "0"
+                price_val = price_val.replace(".", "").replace(",", ".")
+                price_source = float(price_val or 0) * len(req.travelers)
+                if not name_el:
+                    add_log(f"[hotels] Nome do hotel não encontrado para {stay['location']} url={url}")
                 results.append(
                     {
                         "city": stay["location"],
@@ -98,10 +148,10 @@ def _scrape_hotels_live(req: SearchRequest, stays: List[Dict[str, Any]]) -> List
                         "checkin": stay["checkin"],
                         "checkout": stay["checkout"],
                         "nights": stay["nights"],
-                        "price_total": convert_currency(price_source, "USD", req.currency),
+                        "price_total": convert_currency(price_source, "BRL", req.currency),
                         "currency": req.currency,
                         "details": {
-                            "base_currency": "USD",
+                            "base_currency": "BRL",
                             "travelers": [t.name for t in req.travelers],
                             "type": stay["type"],
                         },

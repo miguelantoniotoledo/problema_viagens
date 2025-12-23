@@ -1,10 +1,13 @@
 import json
 from pathlib import Path
 from typing import List, Dict, Any
+import re
 
 from src.models import SearchRequest
 from src.utils.normalization import convert_currency
 from src.scrapers.playwright_client import open_browser, should_use_live_scraper
+from src import config
+from src.utils.logs import add_log
 
 
 MOCK_FILE = Path("voos.json")
@@ -33,11 +36,7 @@ def scrape_flights(req: SearchRequest, legs: List[Dict[str, Any]]) -> List[Dict[
         Lista de voos candidatos com preço total convertido e metadados.
     """
     if should_use_live_scraper():
-        try:
-            return _scrape_flights_live(req, legs)
-        except Exception:
-            # Se der erro, cair para mock para não quebrar a aplicação
-            pass
+        return _scrape_flights_live(req, legs)
     data = load_mock()
     results: List[Dict[str, Any]] = []
     for leg in legs:
@@ -77,22 +76,73 @@ def _scrape_flights_live(req: SearchRequest, legs: List[Dict[str, Any]]) -> List
         Seletores podem mudar; ajuste conforme inspeção real.
     """
     results: List[Dict[str, Any]] = []
-    with open_browser(headless=True) as (_, context):
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    with open_browser(headless=config.PLAYWRIGHT_HEADLESS) as (_, context):
         page = context.new_page()
+        page.set_default_timeout(config.PLAYWRIGHT_TIMEOUT_MS)
         for leg in legs:
+            dep_date = (leg.get("departure") or "").split("T")[0] or leg.get("departure")
+            adults = max(1, len([t for t in req.travelers if t.category == "adult"]))
             url = (
-                f"https://www.kayak.com/flights/{leg['origin']}-{leg['destination']}/"
-                f"{leg['departure']}?sort=price_a"
+                f"{config.KAYAK_BASE}/flights/{leg['origin']}-{leg['destination']}/"
+                f"{dep_date}/{adults}adults?sort=bestflight_a"
             )
-            page.goto(url, wait_until="networkidle")
-            page.wait_for_timeout(2000)
-            cards = page.query_selector_all('[data-resultid]')
+            add_log(f"[flights] URL: {url}")
+            final_url = url
+            success = False
+            for attempt in range(2):
+                try:
+                    page.goto(url, wait_until="domcontentloaded")
+                    page.wait_for_load_state("networkidle")
+                    page.wait_for_timeout(5000)
+                    final_url = page.url
+                    success = True
+                    break
+                except PlaywrightTimeoutError:
+                    add_log(f"[flights] Timeout (tentativa {attempt+1}) ao abrir {url}")
+            if not success:
+                continue
+            cards = page.query_selector_all('[data-resultid], [data-test*="result-card"]')
+            if not cards:
+                add_log(f"[flights] Nenhum card encontrado em {final_url}")
+                continue
             for card in cards[: req.max_items]:
-                price_el = card.query_selector('[data-test-price]')
+                price_el = None
+                # Seletores observados na pбgina .com.br (ex.: div.e2GB-price-text)
+                price_selectors = [
+                    ".e2GB-price-text",
+                    "[data-test-price]",
+                    "[aria-label*='$']",
+                    "[aria-label*='R$']",
+                    "[class*='price']",
+                ]
+                for css in price_selectors:
+                    price_el = card.query_selector(css)
+                    if price_el:
+                        break
+                if not price_el:
+                    # Fallback baseado em XPath capturado
+                    price_el = page.query_selector(
+                        'xpath=//*[@id="flight-results-list-wrapper"]/div[3]/div[2]/div/div[1]/div[2]/div/div[2]/div/div[2]/div/div[2]/div/div[1]/div[1]/a/div/div/div[1]/div/div[1]'
+                    )
+                if not price_el:
+                    price_el = page.query_selector(
+                        'xpath=//*[@id="flight-results-list-wrapper"]//*[contains(@class,"price")]'
+                    )
+                if not price_el:
+                    add_log(f"[flights] Nenhum elemento de preço encontrado para {leg['origin']}->{leg['destination']} url={url}")
+                price_text = price_el.inner_text() if price_el else "0"
+                m = re.search(r"([0-9][0-9\\.,]*)", price_text.replace("\u00a0", " "))
+                price_val = m.group(1) if m else "0"
+                price_val = price_val.replace(".", "").replace(",", ".")
+                price_source = float(price_val or 0) * len(req.travelers)
                 time_el = card.query_selector('[data-test-leg-times]')
                 airline_el = card.query_selector('[data-test-airline-name]')
-                price_text = price_el.inner_text().replace("$", "").replace(",", "") if price_el else "0"
-                price_source = float(price_text or 0) * len(req.travelers)
+                if not airline_el:
+                    add_log(f"[flights] Companhia aérea não encontrada para {leg['origin']}->{leg['destination']} url={url}")
+                if not time_el:
+                    add_log(f"[flights] Horário não encontrado para {leg['origin']}->{leg['destination']} url={url}")
                 results.append(
                     {
                         "leg": leg,
@@ -101,11 +151,11 @@ def _scrape_flights_live(req: SearchRequest, legs: List[Dict[str, Any]]) -> List
                         "destination": leg["destination"],
                         "departure": leg["departure"],
                         "arrival": leg["arrival"],
-                        "price": convert_currency(price_source, "USD", req.currency),
+                        "price": convert_currency(price_source, "BRL", req.currency),
                         "currency": req.currency,
                         "details": {
                             "travelers": [t.name for t in req.travelers],
-                            "source_currency": "USD",
+                            "source_currency": "BRL",
                             "times": time_el.inner_text().strip() if time_el else "",
                         },
                     }

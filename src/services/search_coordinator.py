@@ -10,6 +10,7 @@ from src.scrapers.kayak_cars import scrape_cars
 from src.utils.normalization import cap_results
 from src.utils.autocomplete import search_locations
 from src.utils.geo import drive_distance_and_time
+from src.utils.logs import clear_log, get_log
 
 
 def _parse_date(value: str) -> datetime:
@@ -72,11 +73,18 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
     if len(flex) > 6:
         warnings.append("Stops flexíveis > 6, mantendo ordem de entrada.")
 
+    seen_orders = set()
+
     for order in flex_orders:
         # Evita combinações onde a mesma cidade fica em sequência (ex.: MIA -> MIA)
         sequence = [s.location for s in fixed_sorted] + [s.location for s in order]
         if any(sequence[i] == sequence[i - 1] for i in range(1, len(sequence))):
             continue
+        # Evita duplicar cenários quando há localidades iguais em flex (mesma sequência)
+        seq_key = tuple(sequence)
+        if seq_key in seen_orders:
+            continue
+        seen_orders.add(seq_key)
         stays: List[Dict[str, Any]] = []
         current_date = trip_start
         feasible = True
@@ -143,34 +151,48 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
     chosen = next((s for s in scenarios if s["is_feasible"]), scenarios[0] if scenarios else {"stays": [], "order": [], "is_feasible": True, "overrun_days": 0})
     stays = chosen["stays"]
 
-    # Monta pernas baseadas em stays e start/end
-    legs: List[Dict[str, Any]] = []
-    if stays:
-        legs.append(
+    def _legs_from_stays(stays_seq: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        legs_local: List[Dict[str, Any]] = []
+        if not stays_seq:
+            return legs_local
+        legs_local.append(
             {
-                "origin": (start_loc or stays[0]["location"]).strip().upper(),
-                "destination": stays[0]["location"],
+                "origin": (start_loc or stays_seq[0]["location"]).strip().upper(),
+                "destination": stays_seq[0]["location"],
                 "departure": trip_start.isoformat(),
-                "arrival": stays[0]["checkin"],
+                "arrival": stays_seq[0]["checkin"],
             }
         )
-        for idx in range(len(stays) - 1):
-            legs.append(
+        for idx in range(len(stays_seq) - 1):
+            legs_local.append(
                 {
-                    "origin": stays[idx]["location"],
-                    "destination": stays[idx + 1]["location"],
-                    "departure": stays[idx]["checkout"],
-                    "arrival": stays[idx + 1]["checkin"],
+                    "origin": stays_seq[idx]["location"],
+                    "destination": stays_seq[idx + 1]["location"],
+                    "departure": stays_seq[idx]["checkout"],
+                    "arrival": stays_seq[idx + 1]["checkin"],
                 }
             )
-        legs.append(
+        legs_local.append(
             {
-                "origin": stays[-1]["location"],
-                "destination": (end_loc or stays[-1]["location"]).strip().upper(),
-                "departure": stays[-1]["checkout"],
+                "origin": stays_seq[-1]["location"],
+                "destination": (end_loc or stays_seq[-1]["location"]).strip().upper(),
+                "departure": stays_seq[-1]["checkout"],
                 "arrival": trip_end.isoformat(),
             }
         )
+        return legs_local
+
+    # Usa pernas do cenário escolhido, mas busca em todas as pernas únicas de todos os cenários para os scrapers
+    legs = _legs_from_stays(stays)
+    all_legs = []
+    seen_leg_keys = set()
+    for sc in scenarios:
+        for leg in _legs_from_stays(sc["stays"]):
+            key = (leg["origin"], leg["destination"], leg["departure"], leg["arrival"])
+            if key in seen_leg_keys:
+                continue
+            seen_leg_keys.add(key)
+            all_legs.append(leg)
 
     enhanced_legs = []
     for leg in legs:
@@ -188,7 +210,7 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
                 pass
         enhanced_legs.append(leg_copy)
 
-    return stays, enhanced_legs, warnings, scenarios
+    return stays, enhanced_legs, warnings, scenarios, all_legs
 
 
 def _build_stays(windows: List[Dict[str, Any]], trip_start: datetime, trip_end: datetime) -> List[Dict[str, Any]]:
@@ -245,38 +267,69 @@ def _build_stays(windows: List[Dict[str, Any]], trip_start: datetime, trip_end: 
     return stays
 
 
-def _build_rentals(legs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Cria blocos de locação de carro correspondentes às pernas.
+def _build_rentals(legs: List[Dict[str, Any]], warnings: List[str]) -> List[Dict[str, Any]]:
+    """Cria blocos de locação de carro correspondentes às pernas, respeitando limite de distância.
 
     Args:
         legs: pernas calculadas da viagem.
+        warnings: lista mutável de avisos.
 
     Returns:
-        Lista de blocos de locação para cada perna.
+        Lista de blocos de locação para cada perna válida.
     """
     rentals: List[Dict[str, Any]] = []
     for leg in legs:
+        dist = leg.get("drive_distance_km")
+        # Se n╞o houver dist╞ncia na perna agregada, tenta calcular via geolocaliza├º├úo.
+        if dist is None:
+            loc_o = next((l for l in search_locations(leg["origin"], limit=50) if l["code"] == leg["origin"]), None)
+            loc_d = next((l for l in search_locations(leg["destination"], limit=50) if l["code"] == leg["destination"]), None)
+            if loc_o and loc_d and loc_o.get("lat") and loc_o.get("lng") and loc_d.get("lat") and loc_d.get("lng"):
+                try:
+                    dist, _ = drive_distance_and_time(
+                        (float(loc_o["lat"]), float(loc_o["lng"])), (float(loc_d["lat"]), float(loc_d["lng"]))
+                    )
+                except Exception:
+                    dist = None
+        if dist and config.MAX_CAR_DISTANCE_KM and dist > config.MAX_CAR_DISTANCE_KM:
+            warnings.append(
+                f"Perna {leg['origin']} -> {leg['destination']} ({dist:.0f} km) excede limite de carro ({config.MAX_CAR_DISTANCE_KM} km)."
+            )
+            continue
+        # Garante pelo menos 1 dia de locação
+        pickup_date = leg["departure"]
+        dropoff_date = leg["arrival"]
+        try:
+            d1 = _parse_date(pickup_date)
+            d2 = _parse_date(dropoff_date)
+            if d1 == d2:
+                d2 = d1 + timedelta(days=1)
+                dropoff_date = d2.isoformat()
+        except Exception:
+            pass
         rentals.append(
             {
                 "pickup": leg["origin"],
                 "dropoff": leg["destination"],
-                "pickup_date": leg["departure"],
-                "dropoff_date": leg["arrival"],
+                "pickup_date": pickup_date,
+                "dropoff_date": dropoff_date,
                 "segments": [],
             }
         )
     return rentals
 
 
-def run_search(req: SearchRequest) -> SearchResponse:
-    """Orquestra cálculo de pernas/estadas e chama scrapers mockados.
+def run_search(req: SearchRequest, include_scrapers: bool = True) -> SearchResponse:
+    """Orquestra cálculo de pernas/estadas e chama scrapers (ou só planeja).
 
     Args:
         req: objeto de requisição com viagem, stops e viajantes.
+        include_scrapers: se False, retorna apenas o plano/meta sem buscar voos/hotéis/carros.
 
     Returns:
         SearchResponse com voos, hotéis, carros e metadados.
     """
+    clear_log()
     trip_start = _parse_date(req.trip_start_date) if req.trip_start_date else datetime.today()
     # Se não houver data final, sugerir como start + min_days_required
     min_days_required = sum(
@@ -289,12 +342,27 @@ def run_search(req: SearchRequest) -> SearchResponse:
         trip_end = _parse_date(req.trip_end_date)
     else:
         trip_end = trip_start + timedelta(days=min_days_required)
-    stays, legs, warnings, scenarios = _build_stays_and_legs(req.stops, trip_start, trip_end, req.trip_start_location or "", req.trip_end_location or "")
-    rentals = _build_rentals(legs)
+    stays, legs, warnings, scenarios, all_legs = _build_stays_and_legs(req.stops, trip_start, trip_end, req.trip_start_location or "", req.trip_end_location or "")
+    rentals = _build_rentals(all_legs, warnings)
 
-    flights = cap_results(scrape_flights(req, legs), req.max_items)
-    hotels = cap_results(scrape_hotels(req, stays), req.max_items)
-    cars = cap_results(scrape_cars(req, rentals), req.max_items)
+    if include_scrapers:
+        flights = cap_results(scrape_flights(req, all_legs), req.max_items)
+        # Monta stays únicas para buscar hotéis em todas as combinações
+        unique_stays: List[Dict[str, Any]] = []
+        seen_stay = set()
+        for sc in scenarios:
+            for st in sc["stays"]:
+                key = (st["location"], st["checkin"], st["checkout"])
+                if key in seen_stay:
+                    continue
+                seen_stay.add(key)
+                unique_stays.append(st)
+        hotels = cap_results(scrape_hotels(req, unique_stays), req.max_items)
+        cars = cap_results(scrape_cars(req, rentals), req.max_items)
+    else:
+        flights = []
+        hotels = []
+        cars = []
 
     meta: Dict[str, Any] = {
         "currency": req.currency,
@@ -334,6 +402,7 @@ def run_search(req: SearchRequest) -> SearchResponse:
         "legs": legs,
         "stays": stays,
         "warnings": warnings,
+        "logs": get_log(),
         "scenarios": [
             {
                 "order": sc["order"],

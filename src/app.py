@@ -20,6 +20,9 @@ st.set_page_config(page_title="Planejador de Viagens - Kayak", layout="wide")
 st.title("Planejador de Viagens (BR-EUA)")
 
 
+DEFAULT_LOCATION_CODE = "GYN"
+
+
 def render_location_picker(container, label: str, key: str, current: str) -> str:
     """Selectbox único com busca interna (dataset local BR/EUA)."""
     options = search_locations("", limit=5000)
@@ -27,9 +30,10 @@ def render_location_picker(container, label: str, key: str, current: str) -> str
         return current.strip().upper()
     display = [f"{o['code']} - {o['city']}/{o['state']} ({o['country']})" for o in options]
     default_index = 0
-    if current:
+    target_code = current or DEFAULT_LOCATION_CODE
+    if target_code:
         for i, opt in enumerate(options):
-            if opt["code"] == current:
+            if opt["code"] == target_code:
                 default_index = i
                 break
     choice = container.selectbox(label, display, index=default_index, key=f"{key}_select")
@@ -41,9 +45,9 @@ def init_state():
     """Inicializa chaves do estado da sessão com valores padrão."""
     st.session_state.setdefault("travelers", [])
     st.session_state.setdefault("stops", [])
-    st.session_state.setdefault("currency", "USD")
-    st.session_state.setdefault("trip_start_location", "")
-    st.session_state.setdefault("trip_end_location", "")
+    st.session_state.setdefault("currency", "BRL")
+    st.session_state.setdefault("trip_start_location", DEFAULT_LOCATION_CODE)
+    st.session_state.setdefault("trip_end_location", DEFAULT_LOCATION_CODE)
     st.session_state.setdefault("trip_start_date", date.today())
     st.session_state.setdefault("trip_end_date", date.today())
 
@@ -319,7 +323,9 @@ def build_request_payload():
 
 
 def render_currency_selector():
-    st.session_state.currency = st.selectbox("Moeda alvo", ["USD", "BRL", "EUR"], index=0)
+    # Kayak .com.br retorna preços em BRL; mantemos moeda fixa
+    st.session_state.currency = "BRL"
+    st.caption("Moeda fixa: BRL (origem Kayak .com.br)")
 
 
 def render_search_and_results():
@@ -327,24 +333,55 @@ def render_search_and_results():
     render_currency_selector()
     if st.button("Buscar opções"):
         payload = build_request_payload()
-        data = cached_search(payload)
-        st.success("Busca finalizada (mock).")
-        # Mostrar ordens/combinações
-        scenarios = data.get("meta", {}).get("scenarios", [])
-        if scenarios:
-            st.subheader("Combinações de localidades (ordem)")
-            trip_start = st.session_state.trip_start_location or "?"
-            trip_end = st.session_state.trip_end_location or trip_start
+        # Pré-visualiza combinações sem chamar scrapers (rápido)
+        preview_req = SearchRequest(
+            segments=[],
+            stops=[
+                Stop(
+                    location=s["location"],
+                    constraint_type=s["constraint_type"],
+                    window_start=s.get("window_start"),
+                    window_end=s.get("window_end"),
+                    min_days=s.get("min_days"),
+                    id=s.get("id"),
+                )
+                for s in payload["stops"]
+            ],
+            travelers=[
+                TravelerProfile(
+                    name=t["name"],
+                    age=t["age"],
+                    category=t["category"],
+                    partner_id=t.get("partner_id"),
+                    bed_pref=t.get("bed_pref"),
+                    id=t.get("id"),
+                )
+                for t in payload["travelers"]
+            ],
+            currency=payload["currency"],
+            max_items=payload["max_items"],
+            trip_start_location=payload["trip_start_location"],
+            trip_start_date=payload["trip_start_date"],
+            trip_end_location=payload["trip_end_location"],
+            trip_end_date=payload["trip_end_date"],
+        )
+        preview = run_search(preview_req, include_scrapers=False)
+        scenarios_preview = preview.meta.get("scenarios", [])
+        if scenarios_preview:
+            st.write("Combinações a serem buscadas:")
             st.table(
                 [
                     {
-                        "ordem": " -> ".join([trip_start] + sc["order"] + [trip_end]),
+                        "ordem": " -> ".join([payload["trip_start_location"]] + sc["order"] + [payload["trip_end_location"]]),
                         "viável": sc["is_feasible"],
-                        "overrun_dias": sc["overrun_days"],
+                        "Excede a data fim (dias)": sc["overrun_days"],
                     }
-                    for sc in scenarios
+                    for sc in scenarios_preview
                 ]
             )
+        with st.spinner("Encontrando voos, carros e hospedagem..."):
+            data = cached_search(payload)
+        st.success("Busca finalizada.")
         st.json(data)
         st.download_button(
             label="Baixar JSON",

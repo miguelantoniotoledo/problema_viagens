@@ -2,10 +2,15 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
+from urllib.parse import quote
+import re
 
 from src.models import SearchRequest
 from src.utils.normalization import convert_currency
 from src.scrapers.playwright_client import open_browser, should_use_live_scraper
+from src import config
+from src.utils.autocomplete import search_locations
+from src.utils.logs import add_log
 
 
 def parse_iso_date(value: str) -> datetime:
@@ -65,10 +70,7 @@ def scrape_cars(req: SearchRequest, rentals: List[Dict[str, Any]]) -> List[Dict[
         Lista de ofertas de aluguel com preço total convertido.
     """
     if should_use_live_scraper():
-        try:
-            return _scrape_cars_live(req, rentals)
-        except Exception:
-            pass
+        return _scrape_cars_live(req, rentals)
     data = load_mock()
     results: List[Dict[str, Any]] = []
     for rental in rentals:
@@ -107,35 +109,94 @@ def _scrape_cars_live(req: SearchRequest, rentals: List[Dict[str, Any]]) -> List
         Lista de carros encontrados com preços convertidos e detalhes.
     """
     results: List[Dict[str, Any]] = []
-    with open_browser(headless=True) as (_, context):
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    with open_browser(headless=config.PLAYWRIGHT_HEADLESS) as (_, context):
         page = context.new_page()
+        page.set_default_timeout(config.PLAYWRIGHT_TIMEOUT_MS)
         for rental in rentals:
+            pickup_date = (rental.get("pickup_date") or "").split("T")[0] or rental.get("pickup_date")
+            dropoff_date = (rental.get("dropoff_date") or "").split("T")[0] or rental.get("dropoff_date")
+            if not pickup_date or not dropoff_date:
+                continue
+            # Kayak prefere slug de cidade; tentamos manter o código, mas montamos fallback com city
+            # Usa código IATA/ID diretamente para evitar issues com acentos
+            pickup_slug = quote(rental["pickup"])
+            dropoff_slug = quote(rental["dropoff"])
             url = (
-                f"https://www.kayak.com/cars/{rental['pickup']}"
-                f"?dropoff={rental['dropoff']}"
-                f"&pickup={rental['pickup_date']}"
-                f"&dropoff={rental['dropoff_date']}"
+                f"{config.KAYAK_BASE}/cars/{pickup_slug}/{dropoff_slug}/{pickup_date}/{dropoff_date}"
+                f"?sort=rank_a"
             )
-            page.goto(url, wait_until="networkidle")
-            page.wait_for_timeout(2000)
-            cards = page.query_selector_all('[data-test-vehicle-card]')
+            add_log(f"[cars] URL: {url}")
+            final_url = url
+            success = False
+            for attempt in range(2):
+                try:
+                    page.goto(url, wait_until="domcontentloaded")
+                    page.wait_for_load_state("networkidle")
+                    page.wait_for_timeout(5000)
+                    final_url = page.url
+                    success = True
+                    break
+                except PlaywrightTimeoutError:
+                    add_log(f"[cars] Timeout (tentativa {attempt+1}) ao abrir {url}")
+            if not success:
+                continue
+            cards = page.query_selector_all('[data-test-vehicle-card], [data-test*="car-card"]')
+            if not cards:
+                add_log(f"[cars] Nenhum card encontrado em {final_url}")
+                continue
             for card in cards[: req.max_items]:
                 name_el = card.query_selector('[data-test-vehicle-name]')
-                price_el = card.query_selector('[data-test-price]')
-                price_text = price_el.inner_text().replace("$", "").replace(",", "") if price_el else "0"
-                price_source = float(price_text or 0) * len(req.travelers)
+                # Tenta capturar a locadora/agência (logo ou texto)
+                agency_el = card.query_selector(".mR2O-agency-logo") or card.query_selector(".EuxN-provider")
+                price_el = None
+                price_selectors = [
+                    ".c4nz8-price-total",
+                    ".OcBh-price",
+                    "[data-test-price]",
+                    "[aria-label*='R$']",
+                    "[aria-label*='$']",
+                    "[class*='price']",
+                ]
+                for css in price_selectors:
+                    price_el = card.query_selector(css)
+                    if price_el:
+                        break
+                if not price_el:
+                    price_el = page.query_selector(
+                        'xpath=//*[@id="mapListWrapper"]/div/div[1]/div[6]/div[1]/div/div[2]/div/div/div[15]/div/div[3]/div[1]/div'
+                    )
+                if not price_el:
+                    price_el = page.query_selector('xpath=//*[@id="mapListWrapper"]//*[contains(@class,"price")]')
+                if not price_el:
+                    add_log(f"[cars] Nenhum elemento de preço para {rental['pickup']}->{rental['dropoff']} url={url}")
+                price_text = price_el.inner_text() if price_el else "0"
+                m = re.search(r"([0-9][0-9\\.,]*)", price_text.replace("\u00a0", " "))
+                price_val = m.group(1) if m else "0"
+                price_val = price_val.replace(".", "").replace(",", ".")
+                price_source = float(price_val or 0) * len(req.travelers)
                 results.append(
                     {
                         "rental_block": rental,
                         "city": rental["pickup"],
                         "name": name_el.inner_text().strip() if name_el else "locadora",
-                        "price_total": convert_currency(price_source, "USD", req.currency),
+                        "price_total": convert_currency(price_source, "BRL", req.currency),
                         "currency": req.currency,
                         "details": {
-                            "base_currency": "USD",
+                            "base_currency": "BRL",
                             "travelers": [t.name for t in req.travelers],
                             "days": _days_between(rental["pickup_date"], rental["dropoff_date"]),
+                            "agency": (
+                                agency_el.get_attribute("alt").replace("Agência do carro:", "").strip()
+                                if agency_el and agency_el.get_attribute("alt")
+                                else (agency_el.inner_text().strip() if agency_el else None)
+                            ),
                         },
                     }
                 )
+                if not name_el:
+                    add_log(f"[cars] Nome/modelo do veículo não encontrado para {rental['pickup']}->{rental['dropoff']} url={url}")
+                if not agency_el:
+                    add_log(f"[cars] Agência/locadora não encontrada para {rental['pickup']}->{rental['dropoff']} url={url}")
     return results
