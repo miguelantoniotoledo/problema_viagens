@@ -79,16 +79,28 @@ def _scrape_flights_live(req: SearchRequest, legs: List[Dict[str, Any]]) -> List
     results: List[Dict[str, Any]] = []
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+    sort_param = "bestflight_a"
+    if req.flight_sort_criteria == "price":
+        sort_param = "price_a"
+    elif req.flight_sort_criteria == "duration":
+        sort_param = "duration_a"
+
     with open_browser(headless=config.PLAYWRIGHT_HEADLESS) as (_, context):
         page = context.new_page()
         page.set_default_timeout(config.PLAYWRIGHT_TIMEOUT_MS)
         for leg in legs:
             dep_date = (leg.get("departure") or "").split("T")[0] or leg.get("departure")
             adults = max(1, len([t for t in req.travelers if t.category == "adult"]))
+
+            # url = (
+            #     f"{config.KAYAK_BASE}/flights/{leg['origin']}-{leg['destination']}/"
+            #     f"{dep_date}/{adults}adults?sort=bestflight_a"
+            # )
             url = (
                 f"{config.KAYAK_BASE}/flights/{leg['origin']}-{leg['destination']}/"
-                f"{dep_date}/{adults}adults?sort=bestflight_a"
+                f"{dep_date}/{adults}adults?sort={sort_param}"
             )
+
             add_log(f"[flights] URL: {url}")
             final_url = url
             # Tenta carregar; se der timeout, ainda assim tenta ler os cards renderizados

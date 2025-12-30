@@ -65,83 +65,213 @@ def render_trip_constraints():
     col4.date_input("Data máxima para término da viagem", key="trip_end_date")
 
 
+# def render_travelers():
+#     st.subheader("Viajantes")
+#     with st.expander("Adicionar viajante"):
+#         with st.form("trav_add_form", clear_on_submit=True):
+#             name = st.text_input("Nome", key="trav_add_name")
+#             age = st.number_input("Idade", min_value=0, max_value=120, value=30, key="trav_add_age")
+#             category = st.selectbox("Categoria", ["adult", "child", "infant"], key="trav_add_category")
+#             bed_pref = st.selectbox("Preferência de leito", ["any", "double", "queen", "king", "twin"], index=0, key="trav_add_bed")
+#             submitted = st.form_submit_button("Salvar viajante", use_container_width=True)
+#             if submitted:
+#                 st.session_state.travelers.append(
+#                     TravelerProfile(
+#                         name=name or f"Viajante {len(st.session_state.travelers)+1}",
+#                         age=int(age),
+#                         category=category,
+#                         bed_pref=bed_pref if bed_pref != "any" else None,
+#                     )
+#                 )
+#                 st.success("Viajante adicionado.")
+#                 st.rerun()
+
+#     if st.session_state.travelers:
+#         rows = [
+#             {
+#                 "nome": t.name,
+#                 "idade": t.age,
+#                 "categoria": t.category,
+#                 "par": next((p.name for p in st.session_state.travelers if p.id == t.partner_id), "-"),
+#                 "leito": t.bed_pref or "-",
+#             }
+#             for t in st.session_state.travelers
+#         ]
+#         st.table(rows)
+
+#     if st.session_state.travelers:
+#         st.write("Editar/Remover viajante")
+#         options = {f"{t.name} ({t.id[:6]})": t for t in st.session_state.travelers}
+#         label = st.selectbox("Selecione para editar", list(options.keys()), key="trav_edit_select")
+#         selected = options[label]
+#         new_name = st.text_input("Nome", value=selected.name, key="trav_edit_name")
+#         new_age = st.number_input("Idade", min_value=0, max_value=120, value=selected.age, key="trav_edit_age")
+#         new_category = st.selectbox("Categoria", ["adult", "child", "infant"], index=["adult", "child", "infant"].index(selected.category), key="trav_edit_category")
+#         new_bed = st.selectbox(
+#             "Preferência de leito",
+#             ["any", "double", "queen", "king", "twin"],
+#             index=0 if not selected.bed_pref else ["any", "double", "queen", "king", "twin"].index(selected.bed_pref),
+#             key="trav_edit_bed",
+#         )
+#         partner_options = ["Nenhum"] + [f"{t.name} ({t.id[:6]})" for t in st.session_state.travelers if t.id != selected.id]
+#         current_partner_label = "Nenhum"
+#         if selected.partner_id:
+#             partner = next((t for t in st.session_state.travelers if t.id == selected.partner_id), None)
+#             if partner:
+#                 current_partner_label = f"{partner.name} ({partner.id[:6]})"
+#         partner_choice = st.selectbox("Forma casal com algum viajante?", partner_options, index=partner_options.index(current_partner_label), key="trav_edit_partner")
+#         cols = st.columns(2)
+#         if cols[0].button("Salvar alterações", key="trav_edit_save"):
+#             selected.name = new_name or selected.name
+#             selected.age = int(new_age)
+#             selected.category = new_category
+#             selected.bed_pref = None if new_bed == "any" else new_bed
+#             new_partner_id = None
+#             if partner_choice != "Nenhum":
+#                 partner = next(t for t in st.session_state.travelers if f"{t.name} ({t.id[:6]})" == partner_choice)
+#                 new_partner_id = partner.id
+#                 partner.partner_id = selected.id
+#             if selected.partner_id and selected.partner_id != new_partner_id:
+#                 old_partner = next((t for t in st.session_state.travelers if t.id == selected.partner_id), None)
+#                 if old_partner:
+#                     old_partner.partner_id = None
+#             selected.partner_id = new_partner_id
+#             st.success("Viajante atualizado.")
+#             st.rerun()
+#         if cols[1].button("Remover viajante", key="trav_edit_remove"):
+#             st.session_state.travelers = [t for t in st.session_state.travelers if t.id != selected.id]
+#             st.warning("Viajante removido.")
+#             st.rerun()
+
 def render_travelers():
+    """Renderiza a gestão de viajantes com opção simplificada e detalhada."""
     st.subheader("Viajantes")
-    with st.expander("Adicionar viajante"):
-        with st.form("trav_add_form", clear_on_submit=True):
-            name = st.text_input("Nome", key="trav_add_name")
-            age = st.number_input("Idade", min_value=0, max_value=120, value=30, key="trav_add_age")
-            category = st.selectbox("Categoria", ["adult", "child", "infant"], key="trav_add_category")
-            bed_pref = st.selectbox("Preferência de leito", ["any", "double", "queen", "king", "twin"], index=0, key="trav_add_bed")
-            submitted = st.form_submit_button("Salvar viajante", use_container_width=True)
-            if submitted:
-                st.session_state.travelers.append(
+    
+    # Seletor de modo de cadastro
+    mode = st.radio(
+        "Modo de cadastro", 
+        ["Quantidade (Rápido)", "Detalhado (Nome, Idade, Preferências)"], 
+        horizontal=True,
+        key="traveler_input_mode"
+    )
+    
+    st.markdown("---")
+
+    if mode == "Quantidade (Rápido)":
+        col1, col2 = st.columns(2)
+        # Inputs numéricos para quantidade
+        qtd_adults = col1.number_input("Quantidade de Adultos", min_value=1, value=1, step=1, key="qty_adults")
+        qtd_children = col2.number_input("Quantidade de Crianças", min_value=0, value=0, step=1, key="qty_children")
+        
+        # Botão para confirmar a alteração de quantidade
+        # Isso gera os perfis automaticamente
+        if st.button("Atualizar Quantidade de Viajantes", key="btn_update_qty") or (len(st.session_state.travelers) == 0):
+            new_travelers = []
+            # Gera perfis genéricos para Adultos
+            for i in range(qtd_adults):
+                new_travelers.append(
                     TravelerProfile(
-                        name=name or f"Viajante {len(st.session_state.travelers)+1}",
-                        age=int(age),
-                        category=category,
-                        bed_pref=bed_pref if bed_pref != "any" else None,
+                        name=f"Adulto {i+1}",
+                        age=30,
+                        category="adult",
+                        bed_pref="any"
                     )
                 )
-                st.success("Viajante adicionado.")
-                st.rerun()
-
-    if st.session_state.travelers:
-        rows = [
-            {
-                "nome": t.name,
-                "idade": t.age,
-                "categoria": t.category,
-                "par": next((p.name for p in st.session_state.travelers if p.id == t.partner_id), "-"),
-                "leito": t.bed_pref or "-",
-            }
-            for t in st.session_state.travelers
-        ]
-        st.table(rows)
-
-    if st.session_state.travelers:
-        st.write("Editar/Remover viajante")
-        options = {f"{t.name} ({t.id[:6]})": t for t in st.session_state.travelers}
-        label = st.selectbox("Selecione para editar", list(options.keys()), key="trav_edit_select")
-        selected = options[label]
-        new_name = st.text_input("Nome", value=selected.name, key="trav_edit_name")
-        new_age = st.number_input("Idade", min_value=0, max_value=120, value=selected.age, key="trav_edit_age")
-        new_category = st.selectbox("Categoria", ["adult", "child", "infant"], index=["adult", "child", "infant"].index(selected.category), key="trav_edit_category")
-        new_bed = st.selectbox(
-            "Preferência de leito",
-            ["any", "double", "queen", "king", "twin"],
-            index=0 if not selected.bed_pref else ["any", "double", "queen", "king", "twin"].index(selected.bed_pref),
-            key="trav_edit_bed",
-        )
-        partner_options = ["Nenhum"] + [f"{t.name} ({t.id[:6]})" for t in st.session_state.travelers if t.id != selected.id]
-        current_partner_label = "Nenhum"
-        if selected.partner_id:
-            partner = next((t for t in st.session_state.travelers if t.id == selected.partner_id), None)
-            if partner:
-                current_partner_label = f"{partner.name} ({partner.id[:6]})"
-        partner_choice = st.selectbox("Forma casal com algum viajante?", partner_options, index=partner_options.index(current_partner_label), key="trav_edit_partner")
-        cols = st.columns(2)
-        if cols[0].button("Salvar alterações", key="trav_edit_save"):
-            selected.name = new_name or selected.name
-            selected.age = int(new_age)
-            selected.category = new_category
-            selected.bed_pref = None if new_bed == "any" else new_bed
-            new_partner_id = None
-            if partner_choice != "Nenhum":
-                partner = next(t for t in st.session_state.travelers if f"{t.name} ({t.id[:6]})" == partner_choice)
-                new_partner_id = partner.id
-                partner.partner_id = selected.id
-            if selected.partner_id and selected.partner_id != new_partner_id:
-                old_partner = next((t for t in st.session_state.travelers if t.id == selected.partner_id), None)
-                if old_partner:
-                    old_partner.partner_id = None
-            selected.partner_id = new_partner_id
-            st.success("Viajante atualizado.")
+            # Gera perfis genéricos para Crianças
+            for i in range(qtd_children):
+                new_travelers.append(
+                    TravelerProfile(
+                        name=f"Criança {i+1}",
+                        age=10,
+                        category="child",
+                        bed_pref="any"
+                    )
+                )
+            st.session_state.travelers = new_travelers
+            st.success(f"Lista atualizada: {len(new_travelers)} viajantes definidos.")
             st.rerun()
-        if cols[1].button("Remover viajante", key="trav_edit_remove"):
-            st.session_state.travelers = [t for t in st.session_state.travelers if t.id != selected.id]
-            st.warning("Viajante removido.")
-            st.rerun()
+            
+        if st.session_state.travelers:
+            st.info(f"Viajantes configurados: {len(st.session_state.travelers)} (Perfis gerados automaticamente).")
+
+    else:
+        # --- MODO DETALHADO (Lógica Original) ---
+        with st.expander("Adicionar viajante manual"):
+            with st.form("trav_add_form", clear_on_submit=True):
+                name = st.text_input("Nome", key="trav_add_name")
+                age = st.number_input("Idade", min_value=0, max_value=120, value=30, key="trav_add_age")
+                category = st.selectbox("Categoria", ["adult", "child", "infant"], key="trav_add_category")
+                bed_pref = st.selectbox("Preferência de leito", ["any", "double", "queen", "king", "twin"], index=0, key="trav_add_bed")
+                submitted = st.form_submit_button("Salvar viajante", use_container_width=True)
+                if submitted:
+                    st.session_state.travelers.append(
+                        TravelerProfile(
+                            name=name or f"Viajante {len(st.session_state.travelers)+1}",
+                            age=int(age),
+                            category=category,
+                            bed_pref=bed_pref if bed_pref != "any" else None,
+                        )
+                    )
+                    st.success("Viajante adicionado.")
+                    st.rerun()
+
+        if st.session_state.travelers:
+            rows = [
+                {
+                    "nome": t.name,
+                    "idade": t.age,
+                    "categoria": t.category,
+                    "par": next((p.name for p in st.session_state.travelers if p.id == t.partner_id), "-"),
+                    "leito": t.bed_pref or "-",
+                }
+                for t in st.session_state.travelers
+            ]
+            st.table(rows)
+
+        if st.session_state.travelers:
+            st.write("Editar/Remover viajante")
+            options = {f"{t.name} ({t.id[:6]})": t for t in st.session_state.travelers}
+            label = st.selectbox("Selecione para editar", list(options.keys()), key="trav_edit_select")
+            if label:
+                selected = options[label]
+                new_name = st.text_input("Nome", value=selected.name, key="trav_edit_name")
+                new_age = st.number_input("Idade", min_value=0, max_value=120, value=selected.age, key="trav_edit_age")
+                new_category = st.selectbox("Categoria", ["adult", "child", "infant"], index=["adult", "child", "infant"].index(selected.category), key="trav_edit_category")
+                new_bed = st.selectbox(
+                    "Preferência de leito",
+                    ["any", "double", "queen", "king", "twin"],
+                    index=0 if not selected.bed_pref else ["any", "double", "queen", "king", "twin"].index(selected.bed_pref),
+                    key="trav_edit_bed",
+                )
+                partner_options = ["Nenhum"] + [f"{t.name} ({t.id[:6]})" for t in st.session_state.travelers if t.id != selected.id]
+                current_partner_label = "Nenhum"
+                if selected.partner_id:
+                    partner = next((t for t in st.session_state.travelers if t.id == selected.partner_id), None)
+                    if partner:
+                        current_partner_label = f"{partner.name} ({partner.id[:6]})"
+                partner_choice = st.selectbox("Forma casal com algum viajante?", partner_options, index=partner_options.index(current_partner_label), key="trav_edit_partner")
+                cols = st.columns(2)
+                if cols[0].button("Salvar alterações", key="trav_edit_save"):
+                    selected.name = new_name or selected.name
+                    selected.age = int(new_age)
+                    selected.category = new_category
+                    selected.bed_pref = None if new_bed == "any" else new_bed
+                    new_partner_id = None
+                    if partner_choice != "Nenhum":
+                        partner = next(t for t in st.session_state.travelers if f"{t.name} ({t.id[:6]})" == partner_choice)
+                        new_partner_id = partner.id
+                        partner.partner_id = selected.id
+                    if selected.partner_id and selected.partner_id != new_partner_id:
+                        old_partner = next((t for t in st.session_state.travelers if t.id == selected.partner_id), None)
+                        if old_partner:
+                            old_partner.partner_id = None
+                    selected.partner_id = new_partner_id
+                    st.success("Viajante atualizado.")
+                    st.rerun()
+                if cols[1].button("Remover viajante", key="trav_edit_remove"):
+                    st.session_state.travelers = [t for t in st.session_state.travelers if t.id != selected.id]
+                    st.warning("Viajante removido.")
+                    st.rerun()
 
 
 def render_stops():
@@ -281,6 +411,7 @@ def cached_search(req_payload: dict):
         trip_start_date=req_payload.get("trip_start_date"),
         trip_end_location=req_payload.get("trip_end_location"),
         trip_end_date=req_payload.get("trip_end_date"),
+        flight_sort_criteria=req_payload.get("flight_sort_criteria", "best"),
     )
     result = run_search(req)
     return result.to_jsonable()
@@ -331,9 +462,29 @@ def render_currency_selector():
 def render_search_and_results():
     st.subheader("Busca")
     render_currency_selector()
+
+    col_sort, _ = st.columns([1, 1])
+    with col_sort:
+        sort_label = st.radio(
+            "Prioridade na busca de voos", 
+            ["Melhor Custo-Benefício", "Menor Preço", "Menor Duração"], 
+            horizontal=True,
+            key="flight_sort_radio"
+        )
+    
+    sort_map = {
+        "Melhor Custo-Benefício": "best",
+        "Menor Preço": "price",
+        "Menor Duração": "duration"
+    }
+    selected_sort = sort_map[sort_label]
+
     if st.button("Buscar opções"):
         payload = build_request_payload()
+        # Injeta a escolha no payload
+        payload["flight_sort_criteria"] = selected_sort
         # Pré-visualiza combinações sem chamar scrapers (rápido)
+
         preview_req = SearchRequest(
             segments=[],
             stops=[
@@ -364,6 +515,7 @@ def render_search_and_results():
             trip_start_date=payload["trip_start_date"],
             trip_end_location=payload["trip_end_location"],
             trip_end_date=payload["trip_end_date"],
+            flight_sort_criteria=selected_sort,
         )
         preview = run_search(preview_req, include_scrapers=False)
         scenarios_preview = preview.meta.get("scenarios", [])

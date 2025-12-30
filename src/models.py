@@ -72,6 +72,7 @@ class SearchRequest:
     trip_start_date: Optional[str] = None
     trip_end_location: Optional[str] = None
     trip_end_date: Optional[str] = None
+    flight_sort_criteria: str = "best"  # values: 'best', 'price', 'duration'
 
 
 @dataclass

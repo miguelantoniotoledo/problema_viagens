@@ -153,16 +153,19 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
 
     def _legs_from_stays(stays_seq: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         legs_local: List[Dict[str, Any]] = []
+
         if not stays_seq:
+            # return legs_local
+            if start_loc and end_loc:
+                legs_local.append(
+                    {
+                        "origin": (start_loc or stays_seq[0]["location"]).strip().upper(),
+                        "destination": stays_seq[0]["location"],
+                        "departure": trip_start.isoformat(),
+                        "arrival": stays_seq[0]["checkin"],
+                    }
+                )
             return legs_local
-        legs_local.append(
-            {
-                "origin": (start_loc or stays_seq[0]["location"]).strip().upper(),
-                "destination": stays_seq[0]["location"],
-                "departure": trip_start.isoformat(),
-                "arrival": stays_seq[0]["checkin"],
-            }
-        )
         for idx in range(len(stays_seq) - 1):
             legs_local.append(
                 {
