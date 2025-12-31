@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 from src import config
 from src.models import TravelerProfile, Stop, SearchRequest  # noqa: E402
 from src.services.search_coordinator import run_search  # noqa: E402
+from src.services.optimizer import optimize_itinerary  # noqa: E402
 from src.utils.autocomplete import search_locations  # noqa: E402
 
 st.set_page_config(page_title="Planejador de Viagens - Kayak", layout="wide")
@@ -483,8 +484,8 @@ def render_search_and_results():
         payload = build_request_payload()
         # Injeta a escolha no payload
         payload["flight_sort_criteria"] = selected_sort
-        # Pré-visualiza combinações sem chamar scrapers (rápido)
 
+        # Pré-visualiza combinações sem chamar scrapers (rápido)
         preview_req = SearchRequest(
             segments=[],
             stops=[
@@ -534,14 +535,52 @@ def render_search_and_results():
         with st.spinner("Encontrando voos, carros e hospedagem..."):
             data = cached_search(payload)
         st.success("Busca finalizada.")
-        st.json(data)
-        st.download_button(
-            label="Baixar JSON",
-            file_name="resultados_viagem.json",
-            mime="application/json",
-            data=json.dumps(data, ensure_ascii=False, indent=2),
-        )
 
+
+        # st.json(data)
+        # st.download_button(
+        #     label="Baixar JSON",
+        #     file_name="resultados_viagem.json",
+        #     mime="application/json",
+        #     data=json.dumps(data, ensure_ascii=False, indent=2),
+        # )
+
+        # --- INTEGRAÇÃO DO OPTIMIZER ---
+        with st.expander("Ver Sugestão Otimizada (Menor Custo)", expanded=True):
+            try:
+                optimized = optimize_itinerary(data)
+                if optimized["status"] == "Optimal":
+                    st.metric("Custo Total Estimado (Mínimo)", f"R$ {optimized['total_cost']:,.2f}")
+                    
+                    if optimized["selected_flights"]:
+                        st.write("✈️ **Voos Selecionados:**")
+                        for f in optimized["selected_flights"]:
+                            leg = f["leg"]
+                            details = f["details"]
+                            st.write(f"- {leg['origin']} -> {leg['destination']} ({leg['departure']}) | Preço: R$ {f['price']:.2f} | Horários: {details.get('times', '-')}")
+                            
+                    if optimized["selected_hotels"]:
+                        st.write("🏨 **Hotéis Selecionados:**")
+                        for h in optimized["selected_hotels"]:
+                            st.write(f"- {h['name']} em {h['city']} ({h['nights']} noites) | Total: R$ {h['price_total']:.2f}")
+
+                    if optimized["selected_cars"]:
+                        st.write("🚗 **Carros Selecionados:**")
+                        for c in optimized["selected_cars"]:
+                            st.write(f"- {c['name']} em {c['city']} ({c['rental_block']['pickup']} -> {c['rental_block']['dropoff']}) | Total: R$ {c['price_total']:.2f}")
+                else:
+                    st.warning("Não foi possível encontrar uma solução ótima com os dados disponíveis.")
+            except Exception as e:
+                st.error(f"Erro ao otimizar: {str(e)}")
+
+        with st.expander("Ver Todos os Resultados (JSON)"):
+            st.json(data)
+            st.download_button(
+                label="Baixar JSON",
+                file_name="resultados_viagem.json",
+                mime="application/json",
+                data=json.dumps(data, ensure_ascii=False, indent=2),
+            )
 
 render_trip_constraints()
 render_travelers()
