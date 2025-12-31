@@ -59,6 +59,15 @@ class RentalBlock:
     traveler_ids: List[str]
     linked_segments: List[str]
 
+@dataclass
+class Activity:
+    name: str
+    city: str
+    price: float
+    duration_minutes: int
+    rating: float  # 0.0 a 5.0
+    category: str  # 'adventure', 'relax', 'culture'
+    id: str = field(default_factory=make_id)
 
 @dataclass
 class SearchRequest:
@@ -86,6 +95,7 @@ class SearchResponse:
     flights: PaginatedResult
     hotels: PaginatedResult
     cars: PaginatedResult
+    activities: PaginatedResult
     meta: Dict[str, Any]
 
     def to_jsonable(self) -> Dict[str, Any]:
@@ -93,5 +103,6 @@ class SearchResponse:
             "flights": asdict(self.flights),
             "hotels": asdict(self.hotels),
             "cars": asdict(self.cars),
+            "activities": asdict(self.activities),
             "meta": self.meta,
         }

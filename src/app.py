@@ -549,6 +549,14 @@ def render_search_and_results():
         with st.expander("Ver Sugestão Otimizada (Menor Custo)", expanded=True):
             try:
                 optimized = optimize_itinerary(data)
+                label_map = {
+                    "price": "Menor Preço (Econômico)",
+                    "duration": "Menor Duração (Rápido)",
+                    "best": "Melhor Custo-Benefício"
+                }
+                curr_crit = label_map.get(selected_sort, selected_sort)
+                st.caption(f"Otimização baseada em: **{curr_crit}**")
+
                 if optimized["status"] == "Optimal":
                     st.metric("Custo Total Estimado (Mínimo)", f"R$ {optimized['total_cost']:,.2f}")
                     
@@ -568,6 +576,12 @@ def render_search_and_results():
                         st.write("🚗 **Carros Selecionados:**")
                         for c in optimized["selected_cars"]:
                             st.write(f"- {c['name']} em {c['city']} ({c['rental_block']['pickup']} -> {c['rental_block']['dropoff']}) | Total: R$ {c['price_total']:.2f}")
+                    
+                    if optimized["selected_activities"]:
+                        st.write("🎟️ **Passeios Sugeridos (Solver):**")
+                        for act in optimized["selected_activities"]:
+                            st.write(f"- [{act['city']}] {act['name']} | R$ {act['price']:.2f} | {act['duration_minutes']} min | ⭐ {act['rating']}")
+        
                 else:
                     st.warning("Não foi possível encontrar uma solução ótima com os dados disponíveis.")
             except Exception as e:

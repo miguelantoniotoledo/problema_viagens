@@ -7,6 +7,7 @@ from src.models import SearchRequest, SearchResponse, PaginatedResult, Stop
 from src.scrapers.kayak_flights import scrape_flights
 from src.scrapers.kayak_hotels import scrape_hotels
 from src.scrapers.kayak_cars import scrape_cars
+from src.scrapers.activities import scrape_activities
 from src.utils.normalization import cap_results
 from src.utils.autocomplete import search_locations
 from src.utils.geo import drive_distance_and_time
@@ -151,21 +152,60 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
     chosen = next((s for s in scenarios if s["is_feasible"]), scenarios[0] if scenarios else {"stays": [], "order": [], "is_feasible": True, "overrun_days": 0})
     stays = chosen["stays"]
 
+    # def _legs_from_stays(stays_seq: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    #     legs_local: List[Dict[str, Any]] = []
+
+    #     if not stays_seq:
+    #         # return legs_local
+    #         if start_loc and end_loc:
+    #             legs_local.append(
+    #                 {
+    #                     "origin": (start_loc or stays_seq[0]["location"]).strip().upper(),
+    #                     "destination": stays_seq[0]["location"],
+    #                     "departure": trip_start.isoformat(),
+    #                     "arrival": stays_seq[0]["checkin"],
+    #                 }
+    #             )
+    #         return legs_local
+    #     for idx in range(len(stays_seq) - 1):
+    #         legs_local.append(
+    #             {
+    #                 "origin": stays_seq[idx]["location"],
+    #                 "destination": stays_seq[idx + 1]["location"],
+    #                 "departure": stays_seq[idx]["checkout"],
+    #                 "arrival": stays_seq[idx + 1]["checkin"],
+    #             }
+    #         )
+    #     legs_local.append(
+    #         {
+    #             "origin": stays_seq[-1]["location"],
+    #             "destination": (end_loc or stays_seq[-1]["location"]).strip().upper(),
+    #             "departure": stays_seq[-1]["checkout"],
+    #             "arrival": trip_end.isoformat(),
+    #         }
+    #     )
+    #     return legs_local
+
     def _legs_from_stays(stays_seq: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         legs_local: List[Dict[str, Any]] = []
-
         if not stays_seq:
-            # return legs_local
+            # CORREÇÃO: se não houver stops, gera perna direta Origem -> Destino
             if start_loc and end_loc:
-                legs_local.append(
-                    {
-                        "origin": (start_loc or stays_seq[0]["location"]).strip().upper(),
-                        "destination": stays_seq[0]["location"],
-                        "departure": trip_start.isoformat(),
-                        "arrival": stays_seq[0]["checkin"],
-                    }
-                )
+                legs_local.append({
+                    "origin": start_loc.strip().upper(),
+                    "destination": end_loc.strip().upper(),
+                    "departure": trip_start.isoformat(),
+                    "arrival": trip_end.isoformat(),
+                })
             return legs_local
+        legs_local.append(
+            {
+                "origin": (start_loc or stays_seq[0]["location"]).strip().upper(),
+                "destination": stays_seq[0]["location"],
+                "departure": trip_start.isoformat(),
+                "arrival": stays_seq[0]["checkin"],
+            }
+        )
         for idx in range(len(stays_seq) - 1):
             legs_local.append(
                 {
@@ -189,13 +229,18 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
     legs = _legs_from_stays(stays)
     all_legs = []
     seen_leg_keys = set()
-    for sc in scenarios:
-        for leg in _legs_from_stays(sc["stays"]):
-            key = (leg["origin"], leg["destination"], leg["departure"], leg["arrival"])
-            if key in seen_leg_keys:
-                continue
-            seen_leg_keys.add(key)
-            all_legs.append(leg)
+
+    if not scenarios and not stops:
+         dummy_legs = _legs_from_stays([])
+         all_legs.extend(dummy_legs)
+    else:    
+        for sc in scenarios:
+            for leg in _legs_from_stays(sc["stays"]):
+                key = (leg["origin"], leg["destination"], leg["departure"], leg["arrival"])
+                if key in seen_leg_keys:
+                    continue
+                seen_leg_keys.add(key)
+                all_legs.append(leg)
 
     enhanced_legs = []
     for leg in legs:
@@ -348,6 +393,8 @@ def run_search(req: SearchRequest, include_scrapers: bool = True) -> SearchRespo
     stays, legs, warnings, scenarios, all_legs = _build_stays_and_legs(req.stops, trip_start, trip_end, req.trip_start_location or "", req.trip_end_location or "")
     rentals = _build_rentals(all_legs, warnings)
 
+    activities = []
+
     if include_scrapers:
         flights = scrape_flights(req, all_legs)  # limite é por perna dentro do scraper
         # Monta stays únicas para buscar hotéis em todas as combinações (limite por estada no scraper)
@@ -362,6 +409,15 @@ def run_search(req: SearchRequest, include_scrapers: bool = True) -> SearchRespo
                 unique_stays.append(st)
         hotels = scrape_hotels(req, unique_stays)
         cars = scrape_cars(req, rentals)
+
+        unique_locations = set([s.location for s in req.stops])
+        # Inclui também o destino final se for diferente da origem
+        if req.trip_end_location and req.trip_end_location != req.trip_start_location:
+             unique_locations.add(req.trip_end_location)
+             
+        for loc in unique_locations:
+            loc_activities = scrape_activities(loc, req.currency)
+            activities.extend(loc_activities)
     else:
         flights = []
         hotels = []
@@ -421,5 +477,6 @@ def run_search(req: SearchRequest, include_scrapers: bool = True) -> SearchRespo
         flights=PaginatedResult(items=flights, total=len(flights)),
         hotels=PaginatedResult(items=hotels, total=len(hotels)),
         cars=PaginatedResult(items=cars, total=len(cars)),
+        activities=PaginatedResult(items=activities, total=len(activities)),
         meta=meta,
     )
