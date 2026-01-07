@@ -10,8 +10,9 @@ Parâmetros:
 - GAP_FILL_DAYS: dias máximos para preencher lacunas de hospedagem antes/depois de janelas fixas.
 - LOCATIONS_FILES: lista de arquivos CSV com localidades (IATA/cidades/UF/país).
 - DRIVE_DISTANCE_FACTOR: fator multiplicador para estimar distância de estrada a partir do Haversine.
- - MAX_CAR_DISTANCE_KM: distância máxima (ajustada) para considerar carro; acima disso, usa apenas voo.
- - AVG_DRIVE_SPEED_KMH: velocidade média para estimar tempo de carro.
+- MAX_CAR_DISTANCE_KM: distância máxima (ajustada) para considerar carro; acima disso, usa apenas voo.
+- AVG_DRIVE_SPEED_KMH: velocidade média para estimar tempo de carro.
+- CAR_FUEL_COST_PER_KM: custo de combustível por km para estimar custo total do carro.
 """
 
 # "mock" (usa JSONs locais) ou "live" (Playwright no Kayak)
@@ -50,3 +51,6 @@ NSGA_WEIGHT_DURATION = 0.5
 
 # Velocidade média para estimar tempo de carro (km/h)
 AVG_DRIVE_SPEED_KMH = 80.0
+
+# Custo de combustível por km (BRL)
+CAR_FUEL_COST_PER_KM = 0.5

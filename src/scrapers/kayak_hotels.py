@@ -11,6 +11,7 @@ from src.scrapers.playwright_client import open_browser, should_use_live_scraper
 from src import config
 from src.utils.autocomplete import search_locations
 from src.utils.logs import add_log
+from src.utils.cancel import is_cancelled
 
 
 MOCK_FILE = Path("hoteis.json")
@@ -88,6 +89,9 @@ def _scrape_hotels_live(req: SearchRequest, stays: List[Dict[str, Any]]) -> List
         page = context.new_page()
         page.set_default_timeout(config.PLAYWRIGHT_TIMEOUT_MS)
         for stay in stays:
+            if is_cancelled():
+                add_log("[hotels] Busca cancelada pelo usuario.")
+                break
             checkin = (stay.get("checkin") or "").split("T")[0] or stay.get("checkin")
             checkout = (stay.get("checkout") or "").split("T")[0] or stay.get("checkout")
             # Usa código IATA como slug para hotéis (ex.: MIA)

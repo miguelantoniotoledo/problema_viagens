@@ -16,6 +16,7 @@ from src.models import TravelerProfile, Stop, SearchRequest  # noqa: E402
 from src.services.search_coordinator import run_search  # noqa: E402
 from src.services.nsga2_solver import solve_nsga2, diagnose_missing  # noqa: E402
 from src.utils.autocomplete import search_locations  # noqa: E402
+from src.utils.cancel import request_cancel, clear_cancel, is_cancelled  # noqa: E402
 
 st.set_page_config(page_title="Planejador de Viagens - Kayak", layout="wide")
 st.title("Planejador de Viagens (BR-EUA)")
@@ -555,7 +556,18 @@ def render_search_and_results():
     }
     selected_sort = sort_map[sort_label]
 
-    if st.button("Buscar opções"):
+    col_search, col_cancel = st.columns([1, 1])
+    with col_search:
+        search_clicked = st.button("Buscar opções")
+    with col_cancel:
+        cancel_clicked = st.button("Cancelar busca")
+
+    if cancel_clicked:
+        request_cancel()
+        st.warning("Cancelamento solicitado. A busca sera interrompida assim que possivel.")
+
+    if search_clicked:
+        clear_cancel()
         payload = build_request_payload()
         # Injeta a escolha no payload
         payload["flight_sort_criteria"] = selected_sort
@@ -641,10 +653,6 @@ def render_search_and_results():
 
     data = st.session_state.last_search_data
     nsga_solutions = st.session_state.last_nsga_solutions
-    preview_rows = st.session_state.get("last_preview_rows", [])
-    if preview_rows:
-        st.write("Combinações a serem buscadas:")
-        st.table(preview_rows)
     if data:
         with st.expander("JSON enviado ao solver", expanded=False):
             st.json(data)
@@ -685,6 +693,7 @@ def render_search_and_results():
                         f"Voo {leg.get('origin')} -> {leg.get('destination')} "
                         f"| Data: {_format_date(leg.get('departure'))} "
                         f"| Horario: {flight.get('details', {}).get('times', '-') or '-'} "
+                        f"| Companhia: {flight.get('provider') or '-'} "
                         f"| Preco: {flight.get('price')} {flight.get('currency')}"
                     ),
                 }
@@ -704,6 +713,7 @@ def render_search_and_results():
             )
         for car in sol["selections"].get("cars", []):
             block = car.get("rental_block", {})
+            fuel_cost = (car.get("details") or {}).get("fuel_cost")
             events.append(
                 {
                     "when": block.get("pickup_date", ""),
@@ -712,7 +722,8 @@ def render_search_and_results():
                         f"| {_format_date(block.get('pickup_date'))} -> {_format_date(block.get('dropoff_date'))} "
                         f"| {car.get('name')} "
                         f"| Agencia: {car.get('details', {}).get('agency', '-') or '-'} "
-                        f"| Preco: {car.get('price_total')} {car.get('currency')}"
+                        f"| Locacao: {car.get('price_total')} {car.get('currency')} "
+                        f"| Combustivel: {fuel_cost} {car.get('currency')}"
                     ),
                 }
             )

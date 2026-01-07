@@ -104,6 +104,8 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
                         "start": prev_end,
                         "end": start,
                         "fill_location": stop.location.strip().upper(),
+                        "assigned": [],
+                        "remaining": (start - prev_end).days,
                     }
                 )
             stays.append(
@@ -124,29 +126,20 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
                     "start": prev_end,
                     "end": trip_end,
                     "fill_location": None,  # não preenche gap final
+                    "assigned": [],
+                    "remaining": (trip_end - prev_end).days,
                 }
             )
 
-        # Flex na ordem candidata, preenchendo slots disponíveis
+        # Flex na ordem candidata, preenchendo slots dispon?veis
         overflow_cursor = trip_end
         for stop in order:
             min_days = stop.min_days or 1
             placed = False
             for slot in slots:
-                remaining = (slot["end"] - slot["start"]).days
-                if remaining >= min_days:
-                    start = slot["start"]
-                    end = start + timedelta(days=min_days)
-                    stays.append(
-                        {
-                            "location": stop.location.strip().upper(),
-                            "checkin": start.isoformat(),
-                            "checkout": end.isoformat(),
-                            "nights": min_days,
-                            "type": "main",
-                        }
-                    )
-                    slot["start"] = end
+                if slot["remaining"] >= min_days:
+                    slot["assigned"].append(stop)
+                    slot["remaining"] -= min_days
                     placed = True
                     break
             if not placed:
@@ -164,6 +157,34 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
                 )
                 overflow_cursor = end
                 feasible = False
+
+        # Agenda as estadas flexiveis dentro de cada slot (alinhadas ao fim do slot)
+        for slot in slots:
+            if not slot["assigned"]:
+                continue
+            total_days = sum((s.min_days or 1) for s in slot["assigned"])
+            if slot["fill_location"] is None:
+                start = slot["start"]
+            else:
+                start = slot["end"] - timedelta(days=total_days)
+                if start < slot["start"]:
+                    start = slot["start"]
+            current = start
+            for stop in slot["assigned"]:
+                min_days = stop.min_days or 1
+                end = current + timedelta(days=min_days)
+                stays.append(
+                    {
+                        "location": stop.location.strip().upper(),
+                        "checkin": current.isoformat(),
+                        "checkout": end.isoformat(),
+                        "nights": min_days,
+                        "type": "main",
+                    }
+                )
+                current = end
+            # Evita gap-fill no inicio do slot (antes do primeiro flex)
+            slot["start"] = current
 
         if overflow_cursor > trip_end:
             overrun_days = (overflow_cursor - trip_end).days

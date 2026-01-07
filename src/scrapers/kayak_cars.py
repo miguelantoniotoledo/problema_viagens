@@ -12,6 +12,7 @@ from src.scrapers.playwright_client import open_browser, should_use_live_scraper
 from src import config
 from src.utils.autocomplete import search_locations
 from src.utils.logs import add_log
+from src.utils.cancel import is_cancelled
 
 
 def parse_iso_date(value: str) -> datetime:
@@ -119,6 +120,9 @@ def _scrape_cars_live(req: SearchRequest, rentals: List[Dict[str, Any]]) -> List
         page = context.new_page()
         page.set_default_timeout(config.PLAYWRIGHT_TIMEOUT_MS)
         for rental in rentals:
+            if is_cancelled():
+                add_log("[cars] Busca cancelada pelo usuario.")
+                break
             pickup_date = (rental.get("pickup_date") or "").split("T")[0] or rental.get("pickup_date")
             dropoff_date = (rental.get("dropoff_date") or "").split("T")[0] or rental.get("dropoff_date")
             if not pickup_date or not dropoff_date:

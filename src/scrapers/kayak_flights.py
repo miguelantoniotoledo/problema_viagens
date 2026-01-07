@@ -9,6 +9,7 @@ from src.utils.normalization import convert_currency
 from src.scrapers.playwright_client import open_browser, should_use_live_scraper
 from src import config
 from src.utils.logs import add_log
+from src.utils.cancel import is_cancelled
 
 
 MOCK_FILE = Path("voos.json")
@@ -92,6 +93,9 @@ def _scrape_flights_live(req: SearchRequest, legs: List[Dict[str, Any]]) -> List
         page = context.new_page()
         page.set_default_timeout(config.PLAYWRIGHT_TIMEOUT_MS)
         for leg in legs:
+            if is_cancelled():
+                add_log("[flights] Busca cancelada pelo usuario.")
+                break
             dep_date = (leg.get("departure") or "").split("T")[0] or leg.get("departure")
             adults = max(1, len([t for t in req.travelers if t.category == "adult"]))
 
@@ -176,19 +180,26 @@ def _scrape_flights_live(req: SearchRequest, legs: List[Dict[str, Any]]) -> List
                 price_val = price_val.replace(".", "").replace(",", ".")
                 price_source = float(price_val or 0) * len(req.travelers)
                 time_el = card.query_selector('[data-test-leg-times]') or card.query_selector(".vmXl-mod-variant-large")
-                airline_el = (
-                    card.query_selector('[data-test-airline-name]')
-                    or card.query_selector("img[alt]")
-                    or card.query_selector(".J0g6-operator-text")
-                )
-                if not airline_el:
-                    add_log(f"[flights] Companhia aérea não encontrada para {leg['origin']}->{leg['destination']} url={url}")
+                provider_name = ""
+                operator_el = card.query_selector(".J0g6-operator-text")
+                if operator_el:
+                    provider_name = (operator_el.inner_text() or "").strip()
+                if not provider_name:
+                    airline_imgs = card.query_selector_all(".c5iUd-leg-carrier img[alt]")
+                    airline_names = []
+                    for img in airline_imgs:
+                        name = (img.get_attribute("alt") or "").strip()
+                        if name and name not in airline_names:
+                            airline_names.append(name)
+                    provider_name = ", ".join(airline_names)
+                if not provider_name:
+                    add_log(f"[flights] Companhia aerea nao encontrada para {leg['origin']}->{leg['destination']} url={url}")
                 if not time_el:
                     add_log(f"[flights] Horário não encontrado para {leg['origin']}->{leg['destination']} url={url}")
                 results.append(
                     {
                         "leg": leg,
-                        "provider": airline_el.inner_text().strip() if airline_el else "kayak",
+                        "provider": provider_name or "kayak",
                         "origin": leg["origin"],
                         "destination": leg["destination"],
                         "departure": leg["departure"],
