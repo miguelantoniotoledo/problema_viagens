@@ -28,7 +28,7 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return EARTH_RADIUS_KM * c
 
 
-def estimate_drive_time_hours(distance_km: float, avg_speed_kmh: float = 80.0) -> float:
+def estimate_drive_time_hours(distance_km: float, avg_speed_kmh: float = config.AVG_DRIVE_SPEED_KMH) -> float:
     """Estimativa simples de tempo de carro (horas) dada distância e velocidade média.
 
     Args:
@@ -42,7 +42,7 @@ def estimate_drive_time_hours(distance_km: float, avg_speed_kmh: float = 80.0) -
     return distance_km / avg_speed_kmh
 
 
-def drive_distance_and_time(latlon1: Tuple[float, float], latlon2: Tuple[float, float], avg_speed_kmh: float = 80.0):
+def drive_distance_and_time(latlon1: Tuple[float, float], latlon2: Tuple[float, float], avg_speed_kmh: float = config.AVG_DRIVE_SPEED_KMH):
     """Retorna distância (km) e tempo estimado (horas) para um trajeto de carro (Haversine ajustado).
 
     Args:

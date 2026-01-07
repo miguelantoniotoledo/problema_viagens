@@ -309,7 +309,7 @@ def _evaluate_solution(groups: List[Dict[str, Any]], choice: List[int]) -> Dict[
             else:
                 flights.append(option)
                 total_cost += float(option.get("price") or 0)
-                total_duration += _parse_time_range(option.get("details", {}).get("times", ""))
+            total_duration += float(option.get("_duration_hours") or 0.0)
         elif group["type"] == "hotel":
             hotels.append(option)
             total_cost += float(option.get("price_total") or 0)
@@ -352,10 +352,12 @@ def _build_transport_options(
     for item in flight_index.get(key_flight, []):
         copy_item = dict(item)
         copy_item["_kind"] = "flight"
+        copy_item["_duration_hours"] = _parse_time_range(copy_item.get("details", {}).get("times", ""))
         options.append(copy_item)
     for item in car_index.get(key_car, []):
         copy_item = dict(item)
         copy_item["_kind"] = "car"
+        copy_item["_duration_hours"] = float(leg.get("drive_time_hours") or 0.0)
         options.append(copy_item)
     return options
 

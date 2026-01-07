@@ -10,7 +10,8 @@ Parâmetros:
 - GAP_FILL_DAYS: dias máximos para preencher lacunas de hospedagem antes/depois de janelas fixas.
 - LOCATIONS_FILES: lista de arquivos CSV com localidades (IATA/cidades/UF/país).
 - DRIVE_DISTANCE_FACTOR: fator multiplicador para estimar distância de estrada a partir do Haversine.
-- MAX_CAR_DISTANCE_KM: distância máxima (ajustada) para considerar carro; acima disso, usa apenas voo.
+ - MAX_CAR_DISTANCE_KM: distância máxima (ajustada) para considerar carro; acima disso, usa apenas voo.
+ - AVG_DRIVE_SPEED_KMH: velocidade média para estimar tempo de carro.
 """
 
 # "mock" (usa JSONs locais) ou "live" (Playwright no Kayak)
@@ -46,3 +47,6 @@ MAX_CAR_DISTANCE_KM = 800.0
 # Pesos para ranking 'Melhor Custo-Beneficio' do NSGA-II (somatorio deve ser 1.0)
 NSGA_WEIGHT_COST = 0.5
 NSGA_WEIGHT_DURATION = 0.5
+
+# Velocidade média para estimar tempo de carro (km/h)
+AVG_DRIVE_SPEED_KMH = 80.0

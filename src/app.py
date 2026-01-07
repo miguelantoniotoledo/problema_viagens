@@ -724,7 +724,7 @@ def render_search_and_results():
 
         for idx, sol in enumerate(nsga_solutions, start=1):
             st.markdown(
-                f"**Solucao {idx}** | Custo: {sol['objectives']['cost_total']} | Duracao (voos): {sol['objectives']['flight_duration_hours']}h"
+                f"**Solucao {idx}** | Custo: {sol['objectives']['cost_total']} | Duracao: {sol['objectives']['flight_duration_hours']}h"
             )
             for line in _format_itinerary(sol):
                 st.write(f"- {line}")
