@@ -20,7 +20,7 @@ dados coletados (voos, hoteis e carros).
    - Gera estadas (stays) e pernas (legs) por cenario.
    - Coleta opcoes em Kayak (voos, hoteis, carros).
    - Monta um JSON de entrada para o solver.
-   - Executa um NSGA-II simples (sem dependencias externas).
+   - Executa NSGA-II via pymoo (dependencia externa).
    - Exibe as melhores solucoes e permite download dos JSONs.
 
 ---
@@ -145,18 +145,24 @@ Caso contrario, o sistema informa ausencia de solucao e lista as faltas.
 Arquivo: `src/config.py`
 
 - SCRAPER_MODE: "mock" ou "live"
+- PLAYWRIGHT_HEADLESS: True/False para modo headless
+- PLAYWRIGHT_TIMEOUT_MS: timeout padrao do Playwright (ms)
 - KAYAK_BASE: dominio base do Kayak
 - DEFAULT_MAX_ITEMS: top N
 - GAP_FILL_DAYS
+- LOCATIONS_FILES
 - DRIVE_DISTANCE_FACTOR
 - MAX_CAR_DISTANCE_KM
+- AVG_DRIVE_SPEED_KMH
+- CAR_FUEL_COST_PER_KM
 - NSGA_WEIGHT_COST / NSGA_WEIGHT_DURATION (custo-beneficio)
+- NSGA_MAX_SOLUTIONS
 
 ---
 
 ## 6. Uso (Streamlit)
 
-1) Instale dependencias:
+1) Instale dependencias (inclui pymoo):
    pip install -r requirements.txt
 2) Execute:
    streamlit run src/app.py

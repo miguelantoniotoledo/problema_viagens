@@ -411,7 +411,7 @@ def solve_nsga2(
     seed: int = 42,
     preference: str = "best",
 ) -> List[Dict[str, Any]]:
-    """Executa o NSGA-II e retorna as melhores solucoes por preferencia.
+    """Executa o NSGA-II via pymoo e retorna as melhores solucoes por preferencia.
 
     Args:
         data: JSON completo com voos/hoteis/carros e meta.
@@ -424,7 +424,29 @@ def solve_nsga2(
     Returns:
         Lista de solucoes com objetivos e selecoes.
     """
-    random.seed(seed)
+    try:
+        import numpy as np
+        from pymoo.algorithms.moo.nsga2 import NSGA2
+        from pymoo.core.problem import ElementwiseProblem
+        from pymoo.optimize import minimize
+    except Exception as exc:
+        raise RuntimeError(
+            "pymoo nao instalado. Instale com: pip install -r requirements.txt"
+        ) from exc
+
+    try:
+        from pymoo.operators.sampling.rnd import IntegerRandomSampling
+    except Exception:
+        IntegerRandomSampling = None
+    try:
+        from pymoo.operators.crossover.sbx import IntegerSBX
+    except Exception:
+        IntegerSBX = None
+    try:
+        from pymoo.operators.mutation.pm import IntegerPolynomialMutation
+    except Exception:
+        IntegerPolynomialMutation = None
+
     scenarios = data.get("meta", {}).get("scenarios", [])
     trip = data.get("meta", {}).get("trip", {})
     flight_index = _index_flights(data)
@@ -437,46 +459,63 @@ def solve_nsga2(
         groups = _build_groups_for_scenario(scenario, trip, flight_index, hotel_index, car_index)
         if not groups:
             continue
-        # grupos vazios já foram filtrados na construção
 
-        pop = []
-        for _ in range(population_size):
-            choice = [random.randrange(len(group["options"])) for group in groups]
-            pop.append(_evaluate_solution(groups, choice))
+        xu = np.array([len(group["options"]) - 1 for group in groups], dtype=int)
+        xl = np.zeros(len(groups), dtype=int)
 
-        for _ in range(generations):
-            fronts = _fast_nondominated_sort(pop)
-            distances: Dict[int, float] = {}
-            for front in fronts:
-                distances.update(_crowding_distance(pop, front))
-            offspring = []
-            while len(offspring) < population_size:
-                parent_a = _tournament(pop, distances)
-                parent_b = _tournament(pop, distances)
-                child_choice = []
-                for idx in range(len(groups)):
-                    if random.random() < 0.5:
-                        child_choice.append(parent_a["choices"][idx])
-                    else:
-                        child_choice.append(parent_b["choices"][idx])
-                    if random.random() < 0.1:
-                        child_choice[-1] = random.randrange(len(groups[idx]["options"]))
-                offspring.append(_evaluate_solution(groups, child_choice))
-            pop.extend(offspring)
-            fronts = _fast_nondominated_sort(pop)
-            new_pop = []
-            for front in fronts:
-                if len(new_pop) + len(front) > population_size:
-                    distances = _crowding_distance(pop, front)
-                    sorted_front = sorted(front, key=lambda i: distances.get(i, 0), reverse=True)
-                    new_pop.extend([pop[i] for i in sorted_front[: population_size - len(new_pop)]])
-                    break
-                new_pop.extend([pop[i] for i in front])
-            pop = new_pop
+        class TravelProblem(ElementwiseProblem):
+            def __init__(self):
+                super().__init__(
+                    n_var=len(groups),
+                    n_obj=2,
+                    xl=xl,
+                    xu=xu,
+                    vtype=int,
+                )
 
-        fronts = _fast_nondominated_sort(pop)
-        best_front = fronts[0] if fronts else list(range(len(pop)))
-        best_candidates = [pop[i] for i in best_front]
+            def _evaluate(self, x, out, *args, **kwargs):
+                x_int = np.rint(x).astype(int)
+                x_int = np.clip(x_int, xl, xu)
+                sol = _evaluate_solution(groups, x_int.tolist())
+                out["F"] = np.array(
+                    [
+                        sol["objectives"]["cost_total"],
+                        sol["objectives"]["flight_duration_hours"],
+                    ],
+                    dtype=float,
+                )
+
+        algo_kwargs = {"pop_size": population_size}
+        if IntegerRandomSampling:
+            algo_kwargs["sampling"] = IntegerRandomSampling()
+        if IntegerSBX:
+            algo_kwargs["crossover"] = IntegerSBX(prob=0.9, eta=15)
+        if IntegerPolynomialMutation:
+            algo_kwargs["mutation"] = IntegerPolynomialMutation(eta=20)
+
+        algorithm = NSGA2(**algo_kwargs)
+        res = minimize(
+            TravelProblem(),
+            algorithm,
+            ("n_gen", generations),
+            seed=seed,
+            verbose=False,
+        )
+
+        if res.X is None:
+            continue
+        X = np.array(res.X)
+        if X.ndim == 1:
+            X = np.array([X])
+
+        best_candidates = []
+        for x in X:
+            x_int = np.rint(x).astype(int)
+            x_int = np.clip(x_int, xl, xu)
+            best_candidates.append(_evaluate_solution(groups, x_int.tolist()))
+        if not best_candidates:
+            continue
+
         if preference == "price":
             best = sorted(
                 best_candidates,
@@ -494,21 +533,16 @@ def solve_nsga2(
             max_cost = max(s["objectives"]["cost_total"] for s in best_candidates)
             min_dur = min(s["objectives"]["flight_duration_hours"] for s in best_candidates)
             max_dur = max(s["objectives"]["flight_duration_hours"] for s in best_candidates)
+
             def _score(sol: Dict[str, Any]) -> float:
-                """Calcula score ponderado de custo/duracao para ranking.
-
-                Args:
-                    sol: solucao com objetivos calculados.
-
-                Returns:
-                    Score normalizado ponderado.
-                """
                 cost = sol["objectives"]["cost_total"]
                 dur = sol["objectives"]["flight_duration_hours"]
                 norm_cost = 0.0 if max_cost == min_cost else (cost - min_cost) / (max_cost - min_cost)
                 norm_dur = 0.0 if max_dur == min_dur else (dur - min_dur) / (max_dur - min_dur)
                 return (weight_cost * norm_cost) + (weight_duration * norm_dur)
+
             best = sorted(best_candidates, key=_score)[:max_solutions]
+
         for sol in best:
             selection_key = json.dumps(sol["selections"], sort_keys=True)
             if selection_key in seen_selection_keys:

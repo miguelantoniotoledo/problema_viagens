@@ -16,7 +16,7 @@ from src.models import TravelerProfile, Stop, SearchRequest  # noqa: E402
 from src.services.search_coordinator import run_search  # noqa: E402
 from src.services.nsga2_solver import solve_nsga2, diagnose_missing  # noqa: E402
 from src.utils.autocomplete import search_locations  # noqa: E402
-from src.utils.cancel import request_cancel, clear_cancel, is_cancelled  # noqa: E402
+from src.utils.cancel import request_cancel, clear_cancel  # noqa: E402
 
 st.set_page_config(page_title="Planejador de Viagens - Kayak", layout="wide")
 st.title("Planejador de Viagens (BR-EUA)")
@@ -571,6 +571,7 @@ def render_search_and_results():
         payload = build_request_payload()
         # Injeta a escolha no payload
         payload["flight_sort_criteria"] = selected_sort
+        st.session_state.last_solver_preference = selected_sort
         # Pré-visualiza combinações sem chamar scrapers (rápido)
 
         preview_req = SearchRequest(
@@ -633,7 +634,11 @@ def render_search_and_results():
             st.session_state.last_preview_rows = []
         with st.spinner("Encontrando voos, carros e hospedagem..."):
             data = cached_search(payload)
-        nsga_solutions = solve_nsga2(data, preference=selected_sort)
+        nsga_solutions = solve_nsga2(
+            data,
+            preference=selected_sort,
+            max_solutions=config.NSGA_MAX_SOLUTIONS,
+        )
         if not nsga_solutions:
             missing = diagnose_missing(data)
             data.setdefault("meta", {})["solver_status"] = {
@@ -732,8 +737,35 @@ def render_search_and_results():
 
     if nsga_solutions:
         st.subheader("Melhores solucoes (NSGA-II)")
+        preference = st.session_state.get("last_solver_preference", "best")
+        if preference == "price":
+            ordered_solutions = sorted(
+                nsga_solutions,
+                key=lambda s: (s["objectives"]["cost_total"], s["objectives"]["flight_duration_hours"]),
+            )
+        elif preference == "duration":
+            ordered_solutions = sorted(
+                nsga_solutions,
+                key=lambda s: (s["objectives"]["flight_duration_hours"], s["objectives"]["cost_total"]),
+            )
+        else:
+            weight_cost = getattr(config, "NSGA_WEIGHT_COST", 0.5)
+            weight_duration = getattr(config, "NSGA_WEIGHT_DURATION", 0.5)
+            min_cost = min(s["objectives"]["cost_total"] for s in nsga_solutions)
+            max_cost = max(s["objectives"]["cost_total"] for s in nsga_solutions)
+            min_dur = min(s["objectives"]["flight_duration_hours"] for s in nsga_solutions)
+            max_dur = max(s["objectives"]["flight_duration_hours"] for s in nsga_solutions)
 
-        for idx, sol in enumerate(nsga_solutions, start=1):
+            def _score(sol: dict) -> float:
+                cost = sol["objectives"]["cost_total"]
+                dur = sol["objectives"]["flight_duration_hours"]
+                norm_cost = 0.0 if max_cost == min_cost else (cost - min_cost) / (max_cost - min_cost)
+                norm_dur = 0.0 if max_dur == min_dur else (dur - min_dur) / (max_dur - min_dur)
+                return (weight_cost * norm_cost) + (weight_duration * norm_dur)
+
+            ordered_solutions = sorted(nsga_solutions, key=_score)
+
+        for idx, sol in enumerate(ordered_solutions, start=1):
             st.markdown(
                 f"**Solucao {idx}** | Custo: {sol['objectives']['cost_total']} | Duracao: {sol['objectives']['flight_duration_hours']}h"
             )
@@ -741,12 +773,12 @@ def render_search_and_results():
                 st.write(f"- {line}")
 
         with st.expander("JSON das solucoes (NSGA-II)"):
-            st.json(nsga_solutions)
+            st.json(ordered_solutions)
             st.download_button(
                 label="Baixar solucoes (NSGA-II)",
                 file_name="solucoes_nsga2.json",
                 mime="application/json",
-                data=json.dumps(nsga_solutions, ensure_ascii=False, indent=2),
+                data=json.dumps(ordered_solutions, ensure_ascii=False, indent=2),
             )
     elif data is not None:
         st.warning("Nenhum itinerario completo disponivel (faltam voos, hoteis ou carros).")
