@@ -86,28 +86,26 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
             continue
         seen_orders.add(seq_key)
         stays: List[Dict[str, Any]] = []
-        current_date = trip_start
         feasible = True
+        overrun_days = 0
 
-        # Fixos na ordem
+        # Monta slots de tempo livre entre janelas fixas (inclui antes da 1a e entre fixas)
+        slots: List[Dict[str, Any]] = []
+        prev_end = trip_start
         for stop in fixed_sorted:
             start = _parse_date(stop.window_start)
             end = _parse_date(stop.window_end)
             if start > trip_end or end > trip_end:
                 feasible = False
                 break
-            if start > current_date:
-                gap = (start - current_date).days
-                if gap > 0 and gap <= config.GAP_FILL_DAYS:
-                    stays.append(
-                        {
-                            "location": stop.location.strip().upper(),
-                            "checkin": current_date.isoformat(),
-                            "checkout": start.isoformat(),
-                            "nights": gap,
-                            "type": "gap_fill",
-                        }
-                    )
+            if start > prev_end:
+                slots.append(
+                    {
+                        "start": prev_end,
+                        "end": start,
+                        "fill_location": stop.location.strip().upper(),
+                    }
+                )
             stays.append(
                 {
                     "location": stop.location.strip().upper(),
@@ -117,41 +115,126 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
                     "type": "main",
                 }
             )
-            current_date = end
+            prev_end = end
         if not feasible:
             continue
-
-        # Flex na ordem candidata
-        for stop in order:
-            min_days = stop.min_days or 1
-            start = current_date
-            end = start + timedelta(days=min_days)
-            stays.append(
+        if trip_end > prev_end:
+            slots.append(
                 {
-                    "location": stop.location.strip().upper(),
-                    "checkin": start.isoformat(),
-                    "checkout": end.isoformat(),
-                    "nights": min_days,
-                    "type": "main",
+                    "start": prev_end,
+                    "end": trip_end,
+                    "fill_location": None,  # não preenche gap final
                 }
             )
-            current_date = end
 
-        overrun_days = (current_date - trip_end).days if current_date > trip_end else 0
+        # Flex na ordem candidata, preenchendo slots disponíveis
+        overflow_cursor = trip_end
+        for stop in order:
+            min_days = stop.min_days or 1
+            placed = False
+            for slot in slots:
+                remaining = (slot["end"] - slot["start"]).days
+                if remaining >= min_days:
+                    start = slot["start"]
+                    end = start + timedelta(days=min_days)
+                    stays.append(
+                        {
+                            "location": stop.location.strip().upper(),
+                            "checkin": start.isoformat(),
+                            "checkout": end.isoformat(),
+                            "nights": min_days,
+                            "type": "main",
+                        }
+                    )
+                    slot["start"] = end
+                    placed = True
+                    break
+            if not placed:
+                # excedeu o intervalo da viagem
+                start = overflow_cursor
+                end = start + timedelta(days=min_days)
+                stays.append(
+                    {
+                        "location": stop.location.strip().upper(),
+                        "checkin": start.isoformat(),
+                        "checkout": end.isoformat(),
+                        "nights": min_days,
+                        "type": "main",
+                    }
+                )
+                overflow_cursor = end
+                feasible = False
+
+        if overflow_cursor > trip_end:
+            overrun_days = (overflow_cursor - trip_end).days
+
+        # Gap-fill apenas para slots remanescentes pequenos (exceto gap final)
+        for slot in slots:
+            gap = (slot["end"] - slot["start"]).days
+            if gap > 0 and gap <= config.GAP_FILL_DAYS and slot["fill_location"]:
+                stays.append(
+                    {
+                        "location": slot["fill_location"],
+                        "checkin": slot["start"].isoformat(),
+                        "checkout": slot["end"].isoformat(),
+                        "nights": gap,
+                        "type": "gap_fill",
+                    }
+                )
+
+        stays_sorted = sorted(stays, key=lambda s: s["checkin"])
+        order_list = [s["location"] for s in stays_sorted if s["type"] == "main"]
         scenarios.append(
             {
-                "stays": sorted(stays, key=lambda s: s["checkin"]),
-                "order": [s.location for s in fixed_sorted] + [s.location for s in order],
-                "is_feasible": current_date <= trip_end,
+                "stays": stays_sorted,
+                "order": order_list,
+                "is_feasible": feasible and overrun_days == 0,
                 "overrun_days": max(0, overrun_days),
             }
         )
+
+    # Deduplica cenários por ordem final efetiva (evita repetições no JSON/NSGA-II)
+    unique_scenarios: List[Dict[str, Any]] = []
+    seen_orders = set()
+    for sc in scenarios:
+        order_key = tuple(sc["order"])
+        if order_key in seen_orders:
+            continue
+        seen_orders.add(order_key)
+        unique_scenarios.append(sc)
+    scenarios = unique_scenarios
 
     # Escolhe a primeira combinação (feasible se houver) para rodar scrapers
     chosen = next((s for s in scenarios if s["is_feasible"]), scenarios[0] if scenarios else {"stays": [], "order": [], "is_feasible": True, "overrun_days": 0})
     stays = chosen["stays"]
 
+    def _merge_adjacent_stays(stays_seq: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Mescla estadas adjacentes/contiguas na mesma cidade para evitar legs redundantes."""
+        if not stays_seq:
+            return []
+        stays_sorted = sorted(stays_seq, key=lambda s: s["checkin"])
+        merged: List[Dict[str, Any]] = []
+        for stay in stays_sorted:
+            if not merged:
+                merged.append(dict(stay))
+                continue
+            last = merged[-1]
+            same_location = stay["location"] == last["location"]
+            last_end = _parse_date(last["checkout"])
+            stay_start = _parse_date(stay["checkin"])
+            stay_end = _parse_date(stay["checkout"])
+            if same_location and stay_start <= last_end:
+                new_end = max(last_end, stay_end)
+                last["checkout"] = new_end.isoformat()
+                last["nights"] = max(1, (new_end - _parse_date(last["checkin"])).days)
+                if stay.get("type") == "main":
+                    last["type"] = "main"
+                continue
+            merged.append(dict(stay))
+        return merged
+
     def _legs_from_stays(stays_seq: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        stays_seq = _merge_adjacent_stays(stays_seq)
         legs_local: List[Dict[str, Any]] = []
 
         if not stays_seq:
@@ -183,7 +266,7 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
                 "arrival": trip_end.isoformat(),
             }
         )
-        return legs_local
+        return [leg for leg in legs_local if leg["origin"] != leg["destination"]]
 
     # Usa pernas do cenário escolhido, mas busca em todas as pernas únicas de todos os cenários para os scrapers
     legs = _legs_from_stays(stays)

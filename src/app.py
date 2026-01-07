@@ -521,16 +521,25 @@ def render_search_and_results():
         scenarios_preview = preview.meta.get("scenarios", [])
         if scenarios_preview:
             st.write("Combinações a serem buscadas:")
-            st.table(
-                [
+            rows = []
+            for sc in scenarios_preview:
+                stays = sc.get("stays", [])
+                per_city = []
+                for stay in stays:
+                    if stay.get("type") != "main":
+                        continue
+                    checkin = (stay.get("checkin") or "").split("T")[0]
+                    checkout = (stay.get("checkout") or "").split("T")[0]
+                    per_city.append(f"{stay.get('location')} ({checkin} -> {checkout})")
+                rows.append(
                     {
                         "ordem": " -> ".join([payload["trip_start_location"]] + sc["order"] + [payload["trip_end_location"]]),
+                        "datas": " | ".join(per_city),
                         "viável": sc["is_feasible"],
                         "Excede a data fim (dias)": sc["overrun_days"],
                     }
-                    for sc in scenarios_preview
-                ]
-            )
+                )
+            st.table(rows)
         with st.spinner("Encontrando voos, carros e hospedagem..."):
             data = cached_search(payload)
         st.success("Busca finalizada.")
