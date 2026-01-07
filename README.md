@@ -160,6 +160,7 @@ Arquivo: `src/config.py`
    pip install -r requirements.txt
 2) Execute:
    streamlit run src/app.py
+   Obs.: pode ser necessaria a instalacao do navegador chrominium para o scrapping. Utilize `playwright install`
 
 O sistema gera:
 1) JSON enviado ao solver
@@ -167,9 +168,33 @@ O sistema gera:
 
 ---
 
+## 6.1 Como utilizar a aplicacao (tutorial passo-a-passo)
+Siga estes passos para operar a interface e exportar resultados:
+
+### 6.1.1. Passo-a-passo na interface
+   - Preencha os campos principais:
+     - Origem e destino (IATA codes).
+     - Datas de inicio e fim (ou janelas flexiveis).
+     - Adicione localidades intermediarias se necessario.
+     - Configure viajantes (adultos/criancas) e preferencias de ordenacao.
+     - Adicione possiveis localidades intermediarias no trajeto na secao Localidades. A opcao por "Janela Fixa" opta por periodo especifico de estadia enquanto que "Dias Minimos" opta por quantidade de dias na localidade. Salve cada localidade em "Salvar Localidade".
+   - Clique em "Buscar opcoes" para iniciar a coleta de dados.
+   - Aguarde a conclusao (a coleta live pode demorar dependendo do scrapping e do Playwright).
+
+### 6.1.2 Visualizar e exportar resultados
+   - Após a execucao, use os controles da UI para filtrar e inspecionar solucoes.
+   - Baixe os JSONs gerados (entrada para o solver e solucoes) atraves dos botoes de download disponibilizados.
+
+### 6.1.3 Dicas e solucao de problemas
+   - Se o scrapper live falhar por falta de navegador, execute `playwright install` e repita.
+   - Para desenvolvimento rapido, altere `src/config.py` para `SCRAPER_MODE = 'mock'` e use os mocks em `voos.json`, `hoteis.json`, `aluguel_carros.json`.
+   - Aumente `PLAYWRIGHT_TIMEOUT_MS` em `src/config.py` se paginas demorarem a carregar.
+
+### 6.1.4. Encerrando
+   - Para parar a aplicacao, interrompa o processo no terminal (Ctrl+C).
+
+
 ## 7. Observacoes
 
-- A representacao atual substitui o MILP original por uma abordagem multiobjetivo
-  baseada em combinacoes de opcoes reais coletadas.
-- A estrutura foi desenhada para ser consumida por um solver externo, quando
-  necessario, mantendo o JSON como ponto de integracao.
+- A representacao atual substitui o MILP original por uma abordagem multiobjetivo baseada em combinacoes de opcoes reais coletadas.
+- A estrutura foi desenhada para ser consumida por um solver externo, quando necessario, mantendo o JSON como ponto de integracao.
