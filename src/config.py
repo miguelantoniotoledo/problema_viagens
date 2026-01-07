@@ -42,3 +42,7 @@ DRIVE_DISTANCE_FACTOR = 1.2
 
 # Distância máxima para considerar rota de carro (km); acima disso, não cria busca de carros
 MAX_CAR_DISTANCE_KM = 800.0
+
+# Pesos para ranking 'Melhor Custo-Beneficio' do NSGA-II (somatorio deve ser 1.0)
+NSGA_WEIGHT_COST = 0.5
+NSGA_WEIGHT_DURATION = 0.5

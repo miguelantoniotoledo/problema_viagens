@@ -35,6 +35,9 @@ MOCK_FILE = Path("aluguel_carros.json")
 def load_mock() -> List[Dict[str, Any]]:
     """Carrega o JSON mock de aluguel de carros.
 
+    Args:
+        None.
+
     Returns:
         Lista de ofertas mockadas.
     """

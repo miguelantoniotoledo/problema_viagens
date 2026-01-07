@@ -9,15 +9,36 @@ _LOG_BUFFER: list[str] = []
 
 
 def clear_log() -> None:
-    """Limpa o buffer de log atual."""
+    """Limpa o buffer de log atual.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+    """
     _LOG_BUFFER.clear()
 
 
 def add_log(message: str) -> None:
-    """Adiciona uma mensagem ao buffer de log."""
+    """Adiciona uma mensagem ao buffer de log.
+
+    Args:
+        message: texto do log.
+
+    Returns:
+        None.
+    """
     _LOG_BUFFER.append(message)
 
 
 def get_log() -> list[str]:
-    """Retorna uma cópia das mensagens de log."""
+    """Retorna uma cópia das mensagens de log.
+
+    Args:
+        None.
+
+    Returns:
+        Lista de mensagens de log.
+    """
     return list(_LOG_BUFFER)

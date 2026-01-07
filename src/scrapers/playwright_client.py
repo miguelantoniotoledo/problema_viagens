@@ -9,7 +9,14 @@ from src import config
 
 
 def _get_user_agent() -> str:
-    # UA simples e atualizável conforme necessidade
+    """Retorna um User-Agent padrão para navegação do Playwright.
+
+    Args:
+        None.
+
+    Returns:
+        String com User-Agent.
+    """
     return (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -21,7 +28,14 @@ _PLAYWRIGHT_AVAILABLE: Optional[bool] = None
 
 
 def _has_playwright_installed() -> bool:
-    """Verifica se playwright e os binários estão disponíveis no ambiente."""
+    """Verifica se o Playwright e os binarios estao disponiveis.
+
+    Args:
+        None.
+
+    Returns:
+        True se Playwright estiver instalado.
+    """
     global _PLAYWRIGHT_AVAILABLE
     if _PLAYWRIGHT_AVAILABLE is not None:
         return _PLAYWRIGHT_AVAILABLE
@@ -68,8 +82,11 @@ def open_browser(headless: bool = True):
 def should_use_live_scraper() -> bool:
     """Controla se usamos Playwright ou mocks.
 
-    Variável de ambiente:
-        SCRAPER_MODE=live | mock (default mock).
+    Args:
+        None.
+
+    Returns:
+        True se deve usar scraper live.
     """
     env_mode = os.getenv("SCRAPER_MODE")
     mode_live = env_mode.lower() == "live" if env_mode else config.SCRAPER_MODE.lower() == "live"

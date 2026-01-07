@@ -11,7 +11,16 @@ DEFAULT_RATES = {
 
 
 def convert_currency(amount: float, source: str, target: str) -> float:
-    """Converte valores entre moedas usando tabela estática simplificada."""
+    """Converte valores entre moedas usando tabela estática simplificada.
+
+    Args:
+        amount: valor original.
+        source: moeda de origem.
+        target: moeda de destino.
+
+    Returns:
+        Valor convertido.
+    """
     if source == target:
         return amount
     rate = DEFAULT_RATES.get((source, target))
@@ -22,5 +31,13 @@ def convert_currency(amount: float, source: str, target: str) -> float:
 
 
 def cap_results(items: List[Dict[str, Any]], max_items: int) -> List[Dict[str, Any]]:
-    """Corta a lista para o limite máximo configurado (top N)."""
+    """Corta a lista para o limite máximo configurado (top N).
+
+    Args:
+        items: lista de itens.
+        max_items: limite de itens.
+
+    Returns:
+        Lista limitada ao top N.
+    """
     return items[:max_items]

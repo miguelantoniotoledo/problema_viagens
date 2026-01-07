@@ -209,7 +209,14 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
     stays = chosen["stays"]
 
     def _merge_adjacent_stays(stays_seq: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Mescla estadas adjacentes/contiguas na mesma cidade para evitar legs redundantes."""
+        """Mescla estadas adjacentes/contiguas na mesma cidade para evitar legs redundantes.
+
+        Args:
+            stays_seq: lista de estadas do cenario.
+
+        Returns:
+            Lista de estadas mescladas.
+        """
         if not stays_seq:
             return []
         stays_sorted = sorted(stays_seq, key=lambda s: s["checkin"])
@@ -234,6 +241,14 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
         return merged
 
     def _legs_from_stays(stays_seq: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Gera pernas a partir das estadas mescladas.
+
+        Args:
+            stays_seq: lista de estadas do cenario.
+
+        Returns:
+            Lista de pernas com origem/destino/partida/chegada.
+        """
         stays_seq = _merge_adjacent_stays(stays_seq)
         legs_local: List[Dict[str, Any]] = []
 
@@ -242,13 +257,27 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
             if start_loc and end_loc:
                 legs_local.append(
                     {
-                        "origin": (start_loc or stays_seq[0]["location"]).strip().upper(),
-                        "destination": stays_seq[0]["location"],
+                        "origin": start_loc.strip().upper(),
+                        "destination": end_loc.strip().upper(),
                         "departure": trip_start.isoformat(),
-                        "arrival": stays_seq[0]["checkin"],
+                        "arrival": trip_end.isoformat(),
                     }
                 )
             return legs_local
+        first = stays_seq[0]
+        if start_loc:
+            origin = start_loc.strip().upper()
+            destination = first["location"]
+            if origin != destination:
+                first_checkin = first["checkin"]
+                legs_local.append(
+                    {
+                        "origin": origin,
+                        "destination": destination,
+                        "departure": first_checkin,
+                        "arrival": first_checkin,
+                    }
+                )
         for idx in range(len(stays_seq) - 1):
             legs_local.append(
                 {
@@ -258,14 +287,15 @@ def _build_stays_and_legs(stops: List[Stop], trip_start: datetime, trip_end: dat
                     "arrival": stays_seq[idx + 1]["checkin"],
                 }
             )
-        legs_local.append(
-            {
-                "origin": stays_seq[-1]["location"],
-                "destination": (end_loc or stays_seq[-1]["location"]).strip().upper(),
-                "departure": stays_seq[-1]["checkout"],
-                "arrival": trip_end.isoformat(),
-            }
-        )
+        if end_loc:
+            legs_local.append(
+                {
+                    "origin": stays_seq[-1]["location"],
+                    "destination": end_loc.strip().upper(),
+                    "departure": stays_seq[-1]["checkout"],
+                    "arrival": trip_end.isoformat(),
+                }
+            )
         return [leg for leg in legs_local if leg["origin"] != leg["destination"]]
 
     # Usa pernas do cenário escolhido, mas busca em todas as pernas únicas de todos os cenários para os scrapers

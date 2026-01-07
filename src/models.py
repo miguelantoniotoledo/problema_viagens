@@ -12,6 +12,14 @@ class SegmentType(str, Enum):
 
 
 def make_id() -> str:
+    """Gera um identificador unico (UUID4) em formato string.
+
+    Args:
+        None.
+
+    Returns:
+        String UUID4.
+    """
     return str(uuid.uuid4())
 
 
@@ -89,6 +97,14 @@ class SearchResponse:
     meta: Dict[str, Any]
 
     def to_jsonable(self) -> Dict[str, Any]:
+        """Converte o resultado em um dicionario serializavel.
+
+        Args:
+            None.
+
+        Returns:
+            Dicionario com flights/hotels/cars/meta.
+        """
         return {
             "flights": asdict(self.flights),
             "hotels": asdict(self.hotels),

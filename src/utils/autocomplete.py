@@ -9,7 +9,14 @@ from src import config
 
 @lru_cache(maxsize=1)
 def load_locations() -> List[Dict]:
-    """Carrega lista de localidades (IATA/cidade/estado/país) dos CSVs configurados."""
+    """Carrega lista de localidades (IATA/cidade/estado/país) dos CSVs configurados.
+
+    Args:
+        None.
+
+    Returns:
+        Lista de dicionarios com localidades.
+    """
     locations: List[Dict] = []
     for file_path in config.LOCATIONS_FILES:
         try:

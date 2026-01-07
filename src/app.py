@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 from src import config
 from src.models import TravelerProfile, Stop, SearchRequest  # noqa: E402
 from src.services.search_coordinator import run_search  # noqa: E402
+from src.services.nsga2_solver import solve_nsga2, diagnose_missing  # noqa: E402
 from src.utils.autocomplete import search_locations  # noqa: E402
 
 st.set_page_config(page_title="Planejador de Viagens - Kayak", layout="wide")
@@ -24,7 +25,17 @@ DEFAULT_LOCATION_CODE = "GYN"
 
 
 def render_location_picker(container, label: str, key: str, current: str) -> str:
-    """Selectbox único com busca interna (dataset local BR/EUA)."""
+    """Renderiza um selectbox de localidades com busca interna.
+
+    Args:
+        container: container Streamlit onde o selectbox será renderizado.
+        label: rótulo do campo.
+        key: chave base para o estado do widget.
+        current: código atual selecionado.
+
+    Returns:
+        Código da localidade escolhida.
+    """
     options = search_locations("", limit=5000)
     if not options:
         return current.strip().upper()
@@ -42,7 +53,14 @@ def render_location_picker(container, label: str, key: str, current: str) -> str
 
 
 def init_state():
-    """Inicializa chaves do estado da sessão com valores padrão."""
+    """Inicializa chaves do estado da sessão com valores padrão.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+    """
     st.session_state.setdefault("travelers", [])
     st.session_state.setdefault("stops", [])
     st.session_state.setdefault("currency", "BRL")
@@ -50,16 +68,27 @@ def init_state():
     st.session_state.setdefault("trip_end_location", DEFAULT_LOCATION_CODE)
     st.session_state.setdefault("trip_start_date", date.today())
     st.session_state.setdefault("trip_end_date", date.today())
+    st.session_state.setdefault("last_search_data", None)
+    st.session_state.setdefault("last_nsga_solutions", None)
+    st.session_state.setdefault("last_preview_rows", [])
 
 
 init_state()
 
 
 def render_trip_constraints():
+    """Renderiza os campos de inicio e fim da viagem na interface.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+    """
     st.subheader("Parâmetros da viagem (início/fim)")
     col1, col2 = st.columns(2)
     st.session_state.trip_start_location = render_location_picker(col1, "Local de início da viagem", "trip_start_loc", st.session_state.trip_start_location)
-    col2.date_input("Data de início", key="trip_start_date")
+    col2.date_input("Data mínima para início da viagem", key="trip_start_date")
     col3, col4 = st.columns(2)
     st.session_state.trip_end_location = render_location_picker(col3, "Local de término da viagem", "trip_end_loc", st.session_state.trip_end_location)
     col4.date_input("Data máxima para término da viagem", key="trip_end_date")
@@ -144,7 +173,14 @@ def render_trip_constraints():
 #             st.rerun()
 
 def render_travelers():
-    """Renderiza a gestão de viajantes com opção simplificada e detalhada."""
+    """Renderiza a gestão de viajantes com modo rápido ou detalhado.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+    """
     st.subheader("Viajantes")
     
     # Seletor de modo de cadastro
@@ -275,6 +311,14 @@ def render_travelers():
 
 
 def render_stops():
+    """Renderiza o cadastro e a edicao de localidades (stops).
+
+    Args:
+        None.
+
+    Returns:
+        None.
+    """
     st.subheader("Localidades (janela fixa ou dias mínimos)")
     # Cadastro primeiro
     constraint_type = st.radio("Tipo de restrição", ["Janela fixa", "Dias mínimos"], horizontal=True, key="stop_add_constraint")
@@ -379,6 +423,14 @@ def render_stops():
 
 @st.cache_data(ttl=300, show_spinner=False)
 def cached_search(req_payload: dict):
+    """Executa a busca usando o payload ja serializado, com cache de 5 minutos.
+
+    Args:
+        req_payload: dicionario com dados da viagem, viajantes e stops.
+
+    Returns:
+        Dicionario com resultados e metadados prontos para JSON.
+    """
     travelers = [
         TravelerProfile(
             name=t["name"],
@@ -418,6 +470,14 @@ def cached_search(req_payload: dict):
 
 
 def build_request_payload():
+    """Monta o payload com dados atuais da sessao para a busca.
+
+    Args:
+        None.
+
+    Returns:
+        Dicionario com dados da viagem, viajantes e stops.
+    """
     travelers = [
         {
             "name": t.name,
@@ -454,12 +514,28 @@ def build_request_payload():
 
 
 def render_currency_selector():
+    """Define a moeda fixa da aplicacao na interface.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+    """
     # Kayak .com.br retorna preços em BRL; mantemos moeda fixa
     st.session_state.currency = "BRL"
     st.caption("Moeda fixa: BRL (origem Kayak .com.br)")
 
 
 def render_search_and_results():
+    """Renderiza o bloco de busca, resultados e saidas do solver.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+    """
     st.subheader("Busca")
     render_currency_selector()
 
@@ -540,16 +616,150 @@ def render_search_and_results():
                     }
                 )
             st.table(rows)
+            st.session_state.last_preview_rows = rows
+        else:
+            st.session_state.last_preview_rows = []
         with st.spinner("Encontrando voos, carros e hospedagem..."):
             data = cached_search(payload)
+        nsga_solutions = solve_nsga2(data, preference=selected_sort)
+        if not nsga_solutions:
+            missing = diagnose_missing(data)
+            data.setdefault("meta", {})["solver_status"] = {
+                "status": "no_solution",
+                "reason": "faltam voos, hoteis ou carros para o itinerario completo",
+                "missing": missing,
+            }
+        else:
+            data.setdefault("meta", {})["solver_status"] = {
+                "status": "ok",
+                "reason": None,
+                "missing": [],
+            }
+        st.session_state.last_search_data = data
+        st.session_state.last_nsga_solutions = nsga_solutions
         st.success("Busca finalizada.")
-        st.json(data)
-        st.download_button(
-            label="Baixar JSON",
-            file_name="resultados_viagem.json",
-            mime="application/json",
-            data=json.dumps(data, ensure_ascii=False, indent=2),
-        )
+
+    data = st.session_state.last_search_data
+    nsga_solutions = st.session_state.last_nsga_solutions
+    preview_rows = st.session_state.get("last_preview_rows", [])
+    if preview_rows:
+        st.write("Combinações a serem buscadas:")
+        st.table(preview_rows)
+    if data:
+        with st.expander("JSON enviado ao solver", expanded=False):
+            st.json(data)
+            st.download_button(
+                label="Baixar JSON",
+                file_name="resultados_viagem.json",
+                mime="application/json",
+                data=json.dumps(data, ensure_ascii=False, indent=2),
+            )
+
+    def _format_date(value: str) -> str:
+        """Extrai a parte de data (YYYY-MM-DD) de um datetime ISO.
+
+        Args:
+            value: string ISO de data/hora.
+
+        Returns:
+            String apenas com a data.
+        """
+        return (value or "").split("T")[0]
+
+    def _format_itinerary(sol: dict) -> List[str]:
+        """Formata uma solucao em linhas legiveis por ordem temporal.
+
+        Args:
+            sol: dicionario com selecoes do solver.
+
+        Returns:
+            Lista de strings descritivas do itinerario.
+        """
+        events = []
+        for flight in sol["selections"].get("flights", []):
+            leg = flight.get("leg", {})
+            events.append(
+                {
+                    "when": leg.get("departure", ""),
+                    "text": (
+                        f"Voo {leg.get('origin')} -> {leg.get('destination')} "
+                        f"| Data: {_format_date(leg.get('departure'))} "
+                        f"| Horario: {flight.get('details', {}).get('times', '-') or '-'} "
+                        f"| Preco: {flight.get('price')} {flight.get('currency')}"
+                    ),
+                }
+            )
+        for stay in sol["selections"].get("hotels", []):
+            events.append(
+                {
+                    "when": stay.get("checkin", ""),
+                    "text": (
+                        f"Hotel em {stay.get('city')} "
+                        f"| {stay.get('name')} "
+                        f"| {_format_date(stay.get('checkin'))} -> {_format_date(stay.get('checkout'))} "
+                        f"| Noites: {stay.get('nights')} "
+                        f"| Preco: {stay.get('price_total')} {stay.get('currency')}"
+                    ),
+                }
+            )
+        for car in sol["selections"].get("cars", []):
+            block = car.get("rental_block", {})
+            events.append(
+                {
+                    "when": block.get("pickup_date", ""),
+                    "text": (
+                        f"Carro {block.get('pickup')} -> {block.get('dropoff')} "
+                        f"| {_format_date(block.get('pickup_date'))} -> {_format_date(block.get('dropoff_date'))} "
+                        f"| {car.get('name')} "
+                        f"| Agencia: {car.get('details', {}).get('agency', '-') or '-'} "
+                        f"| Preco: {car.get('price_total')} {car.get('currency')}"
+                    ),
+                }
+            )
+        events_sorted = sorted(events, key=lambda e: e["when"])
+        return [e["text"] for e in events_sorted]
+
+    if nsga_solutions:
+        st.subheader("Melhores solucoes (NSGA-II)")
+
+        for idx, sol in enumerate(nsga_solutions, start=1):
+            st.markdown(
+                f"**Solucao {idx}** | Custo: {sol['objectives']['cost_total']} | Duracao (voos): {sol['objectives']['flight_duration_hours']}h"
+            )
+            for line in _format_itinerary(sol):
+                st.write(f"- {line}")
+
+        with st.expander("JSON das solucoes (NSGA-II)"):
+            st.json(nsga_solutions)
+            st.download_button(
+                label="Baixar solucoes (NSGA-II)",
+                file_name="solucoes_nsga2.json",
+                mime="application/json",
+                data=json.dumps(nsga_solutions, ensure_ascii=False, indent=2),
+            )
+    elif data is not None:
+        st.warning("Nenhum itinerario completo disponivel (faltam voos, hoteis ou carros).")
+        missing = data.get("meta", {}).get("solver_status", {}).get("missing", [])
+        if missing:
+            st.write("Faltas por combinacao:")
+            for item in missing:
+                order = " -> ".join(item.get("order") or [])
+                if item.get("missing_legs"):
+                    legs_text = "; ".join(
+                        [
+                            f"{leg['origin']} -> {leg['destination']} em {leg['date']}"
+                            for leg in item["missing_legs"]
+                        ]
+                    )
+                    st.write(f"- {order} | Pernas sem transporte: {legs_text}")
+                if item.get("missing_hotels"):
+                    hotels_text = "; ".join(
+                        [
+                            f"{stay['location']} ({stay['checkin']} -> {stay['checkout']})"
+                            for stay in item["missing_hotels"]
+                        ]
+                    )
+                    st.write(f"- {order} | Estadas sem hotel: {hotels_text}")
 
 
 render_trip_constraints()
