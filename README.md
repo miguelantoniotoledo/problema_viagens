@@ -144,19 +144,19 @@ Caso contrario, o sistema informa ausencia de solucao e lista as faltas.
 
 Arquivo: `src/config.py`
 
-- SCRAPER_MODE: "mock" ou "live"
-- PLAYWRIGHT_HEADLESS: True/False para modo headless
-- PLAYWRIGHT_TIMEOUT_MS: timeout padrao do Playwright (ms)
-- KAYAK_BASE: dominio base do Kayak
-- DEFAULT_MAX_ITEMS: top N
-- GAP_FILL_DAYS
-- LOCATIONS_FILES
-- DRIVE_DISTANCE_FACTOR
-- MAX_CAR_DISTANCE_KM
-- AVG_DRIVE_SPEED_KMH
-- CAR_FUEL_COST_PER_KM
-- NSGA_WEIGHT_COST / NSGA_WEIGHT_DURATION (custo-beneficio)
-- NSGA_MAX_SOLUTIONS
+- SCRAPER_MODE: controla fonte de dados dos scrapers ("mock" ou "live"). Em "live", usa Playwright.
+- PLAYWRIGHT_HEADLESS: se True, navega em modo headless; util definir False para depurar.
+- PLAYWRIGHT_TIMEOUT_MS: timeout padrao de navegacao/seletores do Playwright (ms).
+- KAYAK_BASE: dominio base do Kayak (use .com.br para melhor compatibilidade).
+- DEFAULT_MAX_ITEMS: limite padrao de itens retornados (top N) por categoria.
+- GAP_FILL_DAYS: dias maximos para preencher lacunas de hospedagem antes/depois de janelas fixas.
+- LOCATIONS_FILES: lista de arquivos CSV com localidades (IATA/cidades/UF/pais).
+- DRIVE_DISTANCE_FACTOR: fator multiplicador para estimar distancia de estrada a partir do Haversine.
+- MAX_CAR_DISTANCE_KM: distancia maxima (ajustada) para considerar carro; acima disso, usa apenas voo.
+- AVG_DRIVE_SPEED_KMH: velocidade media para estimar tempo de carro.
+- CAR_FUEL_COST_PER_KM: custo de combustivel por km para estimar custo total do carro.
+- NSGA_WEIGHT_COST / NSGA_WEIGHT_DURATION: pesos para ranking "Melhor Custo-Beneficio" (somatorio = 1.0).
+- NSGA_MAX_SOLUTIONS: numero maximo de solucoes retornadas pelo NSGA-II.
 
 ---
 
