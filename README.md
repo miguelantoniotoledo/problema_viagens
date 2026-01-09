@@ -199,6 +199,13 @@ Siga estes passos para operar a interface e exportar resultados:
 ### 6.1.4. Encerrando
    - Para parar a aplicacao, interrompa o processo no terminal (Ctrl+C).
 
+## 6.2 Video de demonstracao
+
+O video de demonstracao esta em `video/ProblemaViagens.mp4`.
+
+Link:
+`video/ProblemaViagens.mp4`
+
 
 ## 7. Observacoes
 
